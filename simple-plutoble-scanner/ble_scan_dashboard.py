@@ -66,7 +66,13 @@ def render():
     sys.stdout.flush()
 
 
-for line in sys.stdin:
+# Immediate banner so the user knows it's alive before the first packet
+sys.stdout.write("\033[2J\033[H=== BLE dashboard: waiting for packets... ===\n")
+sys.stdout.flush()
+
+# Use readline() rather than `for line in sys.stdin` — the latter does
+# read-ahead buffering that delays line delivery for slow streams.
+for line in iter(sys.stdin.readline, ""):
     if "crc=OK" not in line:
         continue
     m = addr_re.search(line)
