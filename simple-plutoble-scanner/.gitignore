@@ -9,3 +9,7 @@ ble_advertise.dSYM/
 
 # Logs
 *.log
+
+# Python bytecode
+__pycache__/
+*.pyc

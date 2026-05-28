@@ -25,6 +25,10 @@ environment.
 - `tune.grc` / `calibrate.py` — XO calibration helpers. `calibrate.py` does an
   automated check by FFT'ing real captures and reporting offset vs reference
   signals (WiFi channels, BLE adv channels).
+- `ble_scan_dashboard.py` — live deduplicated device dashboard. Pipe the
+  decoder output into it for a running list of devices (address, RSSI, channel,
+  name, Apple subtype, packet count), refreshed in place:
+  `... ble.py | ./ble_scan_dashboard.py` (env: `SORT=rssi|seen|count`, `STALE=30`)
 - `ble_advertise.swift` — Mac CoreBluetooth advertiser that broadcasts a known
   service UUID, useful for end-to-end verification:
   `swiftc ble_advertise.swift -o ble_advertise && ./ble_advertise`
