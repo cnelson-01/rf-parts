@@ -1,0 +1,348 @@
+options:
+  parameters:
+    author: ''
+    catch_exceptions: 'True'
+    category: '[GRC Hier Blocks]'
+    cmake_opt: ''
+    comment: 'PlutoSDR XO calibration helper.
+
+      Tune to a known reference (e.g. WiFi beacon center 2412e6 for ch 1, or 2402e6
+      + run ble_advertise). Observe the spike location vs the 0 Hz center line. Use
+      the offset_hz slider to align the cursor mentally, read off offset, convert
+      to ppm with the formula:
+
+      ppm = offset_hz / tune_center * 1e6 xo_correction_hz = 40_000_000 - 40_000_000
+      * (ppm / 1e6)
+
+      Apply once permanently in /Volumes/PlutoSDR/config.txt under [SYSTEM]: xo_correction
+      = <integer Hz of XO frequency>'
+    copyright: ''
+    description: XO calibration via visual peak alignment
+    gen_cmake: 'On'
+    gen_linking: dynamic
+    generate_options: qt_gui
+    hier_block_src_path: '.:'
+    id: tune
+    max_nouts: '0'
+    output_language: python
+    placement: (0,0)
+    qt_qss_theme: ''
+    realtime_scheduling: ''
+    run: 'True'
+    run_command: '{python} -u {filename}'
+    run_options: prompt
+    sizing_mode: fixed
+    thread_safe_setters: ''
+    title: PlutoSDR XO Tuning
+    window_size: (1400,900)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [8, 8]
+    rotation: 0
+    state: enabled
+
+blocks:
+- name: offset_hz
+  id: variable_qtgui_range
+  parameters:
+    comment: Cancel out the observed offset; read final value as XO drift
+    gui_hint: ''
+    label: Software offset (Hz)
+    min_len: '200'
+    orient: QtCore.Qt.Horizontal
+    rangeType: float
+    start: '-200000'
+    step: '10'
+    stop: '200000'
+    value: '0'
+    widget: counter_slider
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [560, 12]
+    rotation: 0
+    state: enabled
+- name: ppm_label
+  id: variable_qtgui_label
+  parameters:
+    comment: Live ppm reading
+    formatter: 'lambda v: f"{v * 1e6 / tune_center:+.3f} ppm"'
+    gui_hint: ''
+    label: XO offset
+    type: real
+    value: offset_hz
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [800, 12]
+    rotation: 0
+    state: enabled
+- name: rf_bw
+  id: variable
+  parameters:
+    comment: "Pluto boot RF bandwidth \u2014 DO NOT change (rewrite crashes firmware)"
+    value: '18000000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [200, 80]
+    rotation: 0
+    state: enabled
+- name: samp_rate
+  id: variable
+  parameters:
+    comment: "Pluto boot rate \u2014 DO NOT CHANGE"
+    value: '30720000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [200, 12]
+    rotation: 0
+    state: enabled
+- name: tune_center
+  id: variable
+  parameters:
+    comment: "Must equal Pluto boot LO (2400000000) \u2014 retune crashes firmware.\
+      \ Default 2.4 GHz window covers BLE ch37 (2402, +2 MHz offset) and WiFi ch1\
+      \ center (2412, +12 MHz offset)."
+    value: '2402000000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [320, 12]
+    rotation: 0
+    state: enabled
+- name: xo_correction_hint
+  id: variable_qtgui_label
+  parameters:
+    comment: XO frequency to write into config.txt
+    formatter: 'lambda v: f"xo_correction = {int(40000000 - 40000000 * (v / tune_center)):d}"'
+    gui_hint: ''
+    label: config.txt value
+    type: real
+    value: offset_hz
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1000, 12]
+    rotation: 0
+    state: enabled
+- name: blocks_rotator_cc_0
+  id: blocks_rotator_cc
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 'Adds offset_hz of frequency offset (software-only). Use to virtually
+      shift the spectrum: drag slider until your known reference signal sits at 0
+      Hz.'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    phase_inc: -2*math.pi * offset_hz / samp_rate
+    tag_inc_update: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [400, 196]
+    rotation: 0
+    state: enabled
+- name: iio_pluto_source_0
+  id: iio_pluto_source
+  parameters:
+    affinity: ''
+    alias: ''
+    auto_filter: 'False'
+    bandwidth: rf_bw
+    bbdc: 'True'
+    buffer_size: '32768'
+    comment: ''
+    filter: ''
+    frequency: int(tune_center)
+    gain1: '''slow_attack'''
+    manual_gain1: '64'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    quadrature: 'True'
+    rfdc: 'True'
+    samplerate: samp_rate
+    uri: ''
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [80, 200]
+    rotation: 0
+    state: enabled
+- name: import_math
+  id: import
+  parameters:
+    alias: ''
+    comment: ''
+    imports: import math
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [16, 80]
+    rotation: 0
+    state: enabled
+- name: qtgui_freq_sink_x_0
+  id: qtgui_freq_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    autoscale: 'False'
+    average: '0.1'
+    axislabels: 'True'
+    bw: samp_rate
+    color1: '"blue"'
+    color10: '"dark blue"'
+    color2: '"red"'
+    color3: '"green"'
+    color4: '"black"'
+    color5: '"cyan"'
+    color6: '"magenta"'
+    color7: '"yellow"'
+    color8: '"dark red"'
+    color9: '"dark green"'
+    comment: "Peak-hold ON, avg 0.1 \u2014 easy to spot intermittent signals. Cursor\
+      \ in plot reads off frequency to ~10 Hz resolution."
+    ctrlpanel: 'True'
+    fc: tune_center
+    fftsize: '32768'
+    freqhalf: 'False'
+    grid: 'True'
+    gui_hint: ''
+    label: Spectrum
+    label1: ''
+    label10: ''
+    label2: ''
+    label3: ''
+    label4: ''
+    label5: ''
+    label6: ''
+    label7: ''
+    label8: ''
+    label9: ''
+    legend: 'False'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: '""'
+    nconnections: '1'
+    norm_window: 'False'
+    showports: 'False'
+    tr_chan: '0'
+    tr_level: '0.0'
+    tr_mode: qtgui.TRIG_MODE_FREE
+    tr_tag: '""'
+    type: complex
+    units: dB
+    update_time: '0.05'
+    width1: '1'
+    width10: '1'
+    width2: '1'
+    width3: '1'
+    width4: '1'
+    width5: '1'
+    width6: '1'
+    width7: '1'
+    width8: '1'
+    width9: '1'
+    wintype: window.WIN_BLACKMAN_hARRIS
+    ymax: '0'
+    ymin: '-140'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [720, 196]
+    rotation: 0
+    state: enabled
+- name: qtgui_waterfall_sink_x_0
+  id: qtgui_waterfall_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    axislabels: 'True'
+    bw: samp_rate
+    color1: '0'
+    color10: '0'
+    color2: '0'
+    color3: '0'
+    color4: '0'
+    color5: '0'
+    color6: '0'
+    color7: '0'
+    color8: '0'
+    color9: '0'
+    comment: ''
+    fc: tune_center
+    fftsize: '4096'
+    freqhalf: 'False'
+    grid: 'False'
+    gui_hint: ''
+    int_max: '-40'
+    int_min: '-120'
+    label1: ''
+    label10: ''
+    label2: ''
+    label3: ''
+    label4: ''
+    label5: ''
+    label6: ''
+    label7: ''
+    label8: ''
+    label9: ''
+    legend: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: '""'
+    nconnections: '1'
+    showports: 'False'
+    type: complex
+    update_time: '0.10'
+    wintype: window.WIN_BLACKMAN_hARRIS
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [720, 380]
+    rotation: 0
+    state: enabled
+
+connections:
+- [blocks_rotator_cc_0, '0', qtgui_freq_sink_x_0, '0']
+- [blocks_rotator_cc_0, '0', qtgui_waterfall_sink_x_0, '0']
+- [iio_pluto_source_0, '0', blocks_rotator_cc_0, '0']
+
+metadata:
+  file_format: 1
+  grc_version: 3.10.12.0

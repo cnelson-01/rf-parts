@@ -1,0 +1,494 @@
+options:
+  parameters:
+    author: ''
+    catch_exceptions: 'True'
+    category: '[GRC Hier Blocks]'
+    cmake_opt: ''
+    comment: ''
+    copyright: ''
+    description: ''
+    gen_cmake: 'On'
+    gen_linking: dynamic
+    generate_options: qt_gui
+    hier_block_src_path: '.:'
+    id: ble
+    max_nouts: '0'
+    output_language: python
+    placement: (0,0)
+    qt_qss_theme: ''
+    realtime_scheduling: ''
+    run: 'True'
+    run_command: '{python} -u {filename}'
+    run_options: prompt
+    sizing_mode: fixed
+    thread_safe_setters: ''
+    title: Not titled yet
+    window_size: (1000,1000)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 8
+    - 8
+    rotation: 0
+    state: enabled
+blocks:
+- name: rf_bw
+  id: variable
+  parameters:
+    comment: ''
+    value: '24000000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 400
+    - 16.0
+    rotation: 0
+    state: enabled
+- name: samp_rate
+  id: variable
+  parameters:
+    comment: ''
+    value: '30720000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 200
+    - 12
+    rotation: 0
+    state: enabled
+- name: tune_center
+  id: variable
+  parameters:
+    comment: ''
+    value: 2.414e9
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 272
+    - 16.0
+    rotation: 0
+    state: enabled
+- name: digital_gfsk_demod_0
+  id: digital_gfsk_demod
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 'BLE 1M PHY: matched Gaussian filter + M&M clock recovery'
+    freq_error: '0.0'
+    gain_mu: '0.175'
+    log: 'False'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    mu: '0.5'
+    omega_relative_limit: '0.005'
+    samples_per_symbol: '4'
+    sensitivity: '1.0'
+    verbose: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 904
+    - 340.0
+    rotation: 0
+    state: enabled
+- name: digital_gfsk_demod_0_0
+  id: digital_gfsk_demod
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 'BLE 1M PHY: matched Gaussian filter + M&M clock recovery'
+    freq_error: '0.0'
+    gain_mu: '0.175'
+    log: 'False'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    mu: '0.5'
+    omega_relative_limit: '0.005'
+    samples_per_symbol: '4'
+    sensitivity: '1.0'
+    verbose: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 896
+    - 468.0
+    rotation: 0
+    state: enabled
+- name: epy_block_0
+  id: epy_block
+  parameters:
+    _source_code: "\"\"\"\nBLE link-layer decoder as an Embedded Python Block.\n\nInput:  byte stream from binary slicer (one bit per byte, value 0 or 1, in\n        on-air transmission order \u2014 earliest bit first).\nOutput: none (prints decoded packets to stdout).\n\nUsage in GRC:\n  Add an \"Embedded Python Block\", paste this whole file as the block source,\n  set channel_index to the BLE channel you tuned to (37=2402, 38=2426, 39=2480).\n  Connect the binary_slicer output to this block's input.\n\"\"\"\n\nimport numpy as np\nfrom gnuradio import gr\n\n# BLE constants\nAA_ADV = 0x8E89BED6                # access address for advertising channels\nPREAMBLE_LEN_BITS = 8\nAA_LEN_BITS = 32\nHEADER_LEN_BITS = 16               # PDU header = 2 bytes\nCRC_LEN_BITS = 24                  # 3 bytes\nMAX_PAYLOAD_BYTES = 257            # spec max\n\nPDU_TYPE_NAMES = {\n    0x0: \"ADV_IND\",           0x1: \"ADV_DIRECT_IND\",\n    0x2: \"ADV_NONCONN_IND\",   0x3: \"SCAN_REQ\",\n    0x4: \"SCAN_RSP\",          0x5: \"CONNECT_IND\",\n    0x6: \"ADV_SCAN_IND\",      0x7: \"ADV_EXT_IND\",\n}\n\n# Apple Continuity subtypes (the byte after 0x4C 0x00 in manufacturer data)\nAPPLE_CONTINUITY = {\n    0x02: \"iBeacon\", 0x05: \"AirDrop\", 0x07: \"AirPods\", 0x09: \"AirPlay-Target\",\n    0x0A: \"AirPlay-Source\", 0x0C: \"Handoff\", 0x0D: \"Tethering-Tgt\",\n    0x0E: \"Tethering-Src\", 0x0F: \"Nearby-Action\", 0x10: \"Nearby-Info\",\n    0x12: \"FindMy\",\n}\n\n\ndef parse_ad_records(ad_payload):\n    \"\"\"Walk TLV AD records, return dict of interesting extracted info.\n\n    Returns keys it found: name, apple, ibeacon_uuid, services\n    \"\"\"\n    info = {}\n    i = 0\n    while i < len(ad_payload):\n        rec_len = ad_payload[i]\n        if rec_len == 0 or i + 1 + rec_len > len(ad_payload):\n            break\n        rec_type = ad_payload[i + 1]\n        rec_value = ad_payload[i + 2 : i + 1 + rec_len]\n        if rec_type in (0x08, 0x09):  # Local Name (Shortened / Complete)\n            try:\n                info[\"name\"] = rec_value.decode(\"utf-8\", errors=\"replace\").rstrip(\"\\x00\")\n            except Exception:\n                pass\n        elif rec_type == 0xFF and len(rec_value) >= 3:  # Manufacturer Data\n            company_id = rec_value[0] | (rec_value[1] << 8)\n            if company_id == 0x004C and len(rec_value) >= 3:  # Apple\n                subtype = rec_value[2]\n                info[\"apple\"] = APPLE_CONTINUITY.get(subtype, f\"Apple-0x{subtype:02X}\")\n                if subtype == 0x02 and len(rec_value) >= 23:  # iBeacon\n                    uuid_bytes = rec_value[4:20]\n                    info[\"ibeacon_uuid\"] = \"-\".join([\n                        uuid_bytes[0:4].hex(), uuid_bytes[4:6].hex(),\n                        uuid_bytes[6:8].hex(), uuid_bytes[8:10].hex(),\n                        uuid_bytes[10:16].hex(),\n                    ])\n        i += 1 + rec_len\n    return info\n\n\ndef bits_to_byte_lsbfirst(bits):\n    \"\"\"8 bits on air \u2192 1 byte. Air order is LSB-first within a byte.\"\"\"\n    b = 0\n    for i, bit in enumerate(bits):\n        b |= (bit & 1) << i\n    return b\n\n\ndef crc24_ble(data_bytes, init=0xAAAAAA):\n    \"\"\"BLE CRC-24, poly 0x65B (= x^24+x^10+x^9+x^6+x^4+x^3+x+1).\n\n    Uses the LSB-first LFSR formulation: bits enter from the LSB side, LFSR\n    shifts right, polynomial used is the bit-reversed form (0xDA6000). This\n    way the returned int matches the on-air CRC bytes interpreted LSB-first\n    per byte \u2014 same convention we use when assembling all other received bytes.\n\n    init=0xAAAAAA for advertising channels; for data channels, init is the\n    CRCInit field from CONNECT_IND (24-bit value, also bit-reversal-aware).\n    \"\"\"\n    state = init & 0xFFFFFF\n    poly_rev = 0xDA6000  # bit-reverse(0x00065B) over 24 bits\n    for byte in data_bytes:\n        for bit_idx in range(8):\n            in_bit = (byte >> bit_idx) & 1\n            state_bit = state & 1\n            state >>= 1\n            if in_bit ^ state_bit:\n                state ^= poly_rev\n    return state & 0xFFFFFF\n\n\ndef make_whitener(channel_index):\n    \"\"\"Return a generator that yields whitening bits for a given channel.\n\n    7-bit LFSR, taps at bits 6 and 2 (= polynomial x^7 + x^5 + 1, the actual\n    BLE on-air whitener \u2014 many spec citations of x^7+x^4+1 are using a different\n    bit convention that ends up equivalent to this in shift-left form).\n\n    Channel-index-to-init mapping was empirically determined:\n      ch 37 \u2192 init 0x58\n    (will need to derive ch 38 / ch 39 inits the same way when tested.)\n\n    Each whitening bit = LFSR[6] (the bit being shifted out).\n    \"\"\"\n    if channel_index == 37:\n        state = 0x58  # empirically derived\n    elif channel_index == 38:\n        state = 0x35  # empirically derived\n    elif channel_index == 39:\n        state = 0x5A  # placeholder \u2014 needs verification when LO can reach 2.48 GHz\n    else:\n        # Fallback for data channels \u2014 would need separate empirical derivation\n        state = 0x40 | (channel_index & 0x3F)\n    while True:\n        out = (state >> 6) & 1\n        fb = ((state >> 6) ^ (state >> 2)) & 1   # taps (6, 2), not (6, 3)\n        state = ((state << 1) & 0x7F) | fb\n        yield out\n\n\ndef dewhiten_bytes(byte_list, channel_index):\n    \"\"\"XOR each bit of each byte with the LFSR stream (bit 0 first).\"\"\"\n    wh = make_whitener(channel_index)\n    out = []\n    for b in byte_list:\n        nb = 0\n        for i in range(8):\n            in_bit = (b >> i) & 1\n            out_bit = in_bit ^ next(wh)\n            nb |= out_bit << i\n        out.append(nb)\n    return out\n\n\n# Precompute AA pattern as 32 bits in air order (LSB of byte0 first)\ndef aa_bits_lsbfirst(aa, nbits=32):\n    bits = []\n    for byte_i in range(nbits // 8):\n        byte = (aa >> (byte_i * 8)) & 0xFF\n        for bit_i in range(8):\n            bits.append((byte >> bit_i) & 1)\n    return bits\n\n\nAA_ADV_BITS = aa_bits_lsbfirst(AA_ADV)\n\n\nclass blk(gr.sync_block):\n    \"\"\"BLE LL decoder: bit stream in \u2192 printed packets out.\"\"\"\n\n    def __init__(self, channel_index=37, invert=False, debug=True):\n        gr.sync_block.__init__(\n            self,\n            name=\"BLE LL Decoder\",\n            # Input 0: bit stream from gfsk_demod (one bit per byte)\n            # Input 1: float32 power values from Complex-to-Mag^2 -> Keep 1 in N=4\n            #          (matched to bit rate so we get one power sample per bit)\n            in_sig=[np.uint8, np.float32],\n            out_sig=None,\n        )\n        self.channel_index = channel_index\n        self.invert = bool(invert)\n        self.debug = bool(debug)\n        self.current_power = 0.0  # most recently seen power sample\n        self.aa_power = 0.0       # snapshot at AA detection \u2014 that's the packet's RSSI\n\n        # sliding 32-bit shift register for AA detection\n        self.shiftreg = 0\n        self.shiftbits = 0           # how many bits we've shifted in so far\n        # Pre-pack AA into a single 32-bit int (in air-bit order LSB first)\n        self.aa_target = 0\n        for i, bit in enumerate(AA_ADV_BITS):\n            self.aa_target |= (bit & 1) << i\n        self.aa_mask = 0xFFFFFFFF\n\n        # state machine\n        self.state = \"SEARCH\"\n        self.pending_bits = []       # bit accumulator for current field\n        self.bits_needed = 0\n        self.header = None\n        self.payload_bytes = []\n        self.payload_len = 0\n\n        self.packets_seen = 0\n        self.packets_ok = 0\n\n    # --- helpers ----------------------------------------------------------\n\n    def reset_to_search(self):\n        self.state = \"SEARCH\"\n        self.pending_bits = []\n        self.bits_needed = 0\n        self.header = None\n        self.payload_bytes = []\n        self.payload_len = 0\n\n    def feed_searching(self, bit):\n        # shift register: newest bit at position 31 (MSB of 32-bit window),\n        # but since AA is air-order LSB-first, we shift in at position 0\n        # and the AA at position 0..31 == target when matched.\n        # Implementation: keep a window of last 32 bits with newest at bit 31.\n        self.shiftreg = ((self.shiftreg >> 1) | ((bit & 1) << 31)) & 0xFFFFFFFF\n        if self.shiftbits < 32:\n            self.shiftbits += 1\n            return\n        if self.shiftreg == self.aa_target:\n            # found AA \u2192 next 16 bits are PDU header (whitened)\n            self.state = \"HEADER\"\n            self.pending_bits = []\n            self.bits_needed = HEADER_LEN_BITS\n\n    def feed_collecting(self, bit):\n        self.pending_bits.append(bit & 1)\n        if len(self.pending_bits) < self.bits_needed:\n            return\n        # Convert collected bits to bytes (LSB-first within each byte)\n        nbytes = self.bits_needed // 8\n        raw_bytes = []\n        for i in range(nbytes):\n            raw_bytes.append(bits_to_byte_lsbfirst(self.pending_bits[i * 8:(i + 1) * 8]))\n\n        if self.state == \"HEADER\":\n            # whitener stream is *continuous* across header+payload+CRC,\n            # so we run dewhiten over each field with a fresh whitener and\n            # advance it the appropriate # of bits between fields.\n            # Simpler: dewhiten the whole packet at the end. For that, we\n            # need to keep RAW bytes here and dewhiten once we have everything.\n            self.header_raw = raw_bytes\n            # Parse the (still-whitened) length isn't valid yet \u2014 must dewhiten first.\n            # Dewhiten just the 2-byte header so we can read the length.\n            dh = dewhiten_bytes(raw_bytes, self.channel_index)\n            length = dh[1] & 0x3F   # low 6 bits = length (some specs use full 8)\n            self.payload_len = length\n            self.header_dewhitened = dh\n            if length == 0 or length > MAX_PAYLOAD_BYTES:\n\
+      \                # garbage; resync\n                self.reset_to_search()\n                return\n            # Now collect `length` bytes of payload (still whitened)\n            self.state = \"PAYLOAD\"\n            self.pending_bits = []\n            self.bits_needed = length * 8\n\n        elif self.state == \"PAYLOAD\":\n            self.payload_raw = raw_bytes\n            self.state = \"CRC\"\n            self.pending_bits = []\n            self.bits_needed = CRC_LEN_BITS\n\n        elif self.state == \"CRC\":\n            self.crc_raw = raw_bytes  # 3 bytes, whitened\n            # Also capture the NEXT 20 bytes (160 bits) past where we think the\n            # CRC ends \u2014 for debugging in case the real packet is longer than we think.\n            self.state = \"EXTRA\"\n            self.pending_bits = []\n            self.bits_needed = 20 * 8\n            self.extra_raw = []\n\n        elif self.state == \"EXTRA\":\n            self.extra_raw = raw_bytes\n            self._finish_packet()\n            self.reset_to_search()\n\n    def _finish_packet(self):\n        # whitener restarts at the START of the PDU; we used 2 bytes already\n        # to dewhiten the header, so we restart and dewhiten ALL (header+payload+crc).\n        full_raw = self.header_raw + self.payload_raw + self.crc_raw\n        full_dh = dewhiten_bytes(full_raw, self.channel_index)\n        hdr = full_dh[:2]\n        payload = full_dh[2:2 + self.payload_len]\n        crc_rx = full_dh[2 + self.payload_len:2 + self.payload_len + 3]\n        crc_rx_int = crc_rx[0] | (crc_rx[1] << 8) | (crc_rx[2] << 16)\n\n        # CRC is computed over header+payload, init 0x555555 for advertising\n        crc_calc = crc24_ble(hdr + payload, init=0xAAAAAA)\n\n        self.packets_seen += 1\n        pdu_type = hdr[0] & 0x0F\n        type_name = PDU_TYPE_NAMES.get(pdu_type, f\"TYPE_0x{pdu_type:X}\")\n        tx_add = (hdr[0] >> 6) & 1\n        ok = \"OK\" if crc_calc == crc_rx_int else \"BAD\"\n        if ok == \"OK\":\n            self.packets_ok += 1\n\n        # advertising address is first 6 bytes of payload (little-endian)\n        addr_str = \"??:??:??:??:??:??\"\n        if len(payload) >= 6:\n            addr_str = \":\".join(f\"{b:02X}\" for b in payload[5::-1])\n        ad_payload = bytes(payload[6:]) if len(payload) > 6 else b\"\"\n\n        # Parse AD records for friendly info (name, Apple continuity type, iBeacon UUID)\n        info = parse_ad_records(ad_payload) if ok == \"OK\" else {}\n        info_parts = []\n        if \"name\" in info:\n            info_parts.append(f'name=\"{info[\"name\"]}\"')\n        if \"apple\" in info:\n            info_parts.append(f\"apple={info['apple']}\")\n        if \"ibeacon_uuid\" in info:\n            info_parts.append(f\"ibeacon={info['ibeacon_uuid']}\")\n        info_str = (\" \" + \" \".join(info_parts)) if info_parts else \"\"\n        # RSSI in dB relative to ADC full scale (Pluto raw IQ is int12 \u2192 magnitude\n        # squared is roughly 0..16M; dBFS \u2248 10*log10(power / 2^24))\n        import math\n        if self.aa_power > 0:\n            rssi_db = 10 * math.log10(self.aa_power) - 10 * math.log10(2 ** 24)\n            rssi_str = f\" rssi={rssi_db:+.1f}dBFS\"\n        else:\n            rssi_str = \"\"\n\n        print(\n            f\"[ch{self.channel_index:>2}] {type_name:<14} \"\n            f\"addr={addr_str} txadd={tx_add} len={self.payload_len:>2} \"\n            f\"crc={ok} crc_rx={crc_rx_int:06X} crc_calc={crc_calc:06X}\"\n            f\"{rssi_str}{info_str} \"\n            f\"adv_data={ad_payload.hex()} \"\n            f\"({self.packets_ok}/{self.packets_seen} OK)\"\n        )\n        if self.debug:\n            raw_hex = bytes(full_raw).hex()\n            extra_hex = bytes(self.extra_raw).hex() if hasattr(self, 'extra_raw') else \"\"\n            print(f\"  PKT raw={raw_hex} extra={extra_hex} len={self.payload_len}\")\n\n    # --- GR streaming hook ------------------------------------------------\n\n    def work(self, input_items, output_items):\n        bits = input_items[0]\n        power = input_items[1]\n        n = min(len(bits), len(power))\n        inv = self.invert\n        for i in range(n):\n            self.current_power = float(power[i])\n            bit = int(bits[i]) ^ inv\n            if self.state == \"SEARCH\":\n                # On AA detection, snap the power value as the packet RSSI\n                prev_state = self.state\n                self.feed_searching(bit)\n                if self.state != prev_state:  # transitioned out of SEARCH = AA matched\n                    self.aa_power = self.current_power\n            else:\n                self.feed_collecting(bit)\n        return n\n"
+    affinity: ''
+    alias: ''
+    channel_index: '37'
+    comment: ''
+    debug: 'True'
+    invert: 'False'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache: "('BLE LL Decoder', 'blk', [('channel_index', '37'), ('invert', 'False'), ('debug', 'True')], [('0', 'byte', 1)], [], 'BLE LL decoder: bit stream in \u2192 printed packets out.', ['channel_index', 'debug', 'invert'])"
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1224
+    - 356.0
+    rotation: 0
+    state: enabled
+- name: epy_block_0_0
+  id: epy_block
+  parameters:
+    _source_code: "\"\"\"\nBLE link-layer decoder as an Embedded Python Block.\n\nInput:  byte stream from binary slicer (one bit per byte, value 0 or 1, in\n        on-air transmission order \u2014 earliest bit first).\nOutput: none (prints decoded packets to stdout).\n\nUsage in GRC:\n  Add an \"Embedded Python Block\", paste this whole file as the block source,\n  set channel_index to the BLE channel you tuned to (37=2402, 38=2426, 39=2480).\n  Connect the binary_slicer output to this block's input.\n\"\"\"\n\nimport numpy as np\nfrom gnuradio import gr\n\n# BLE constants\nAA_ADV = 0x8E89BED6                # access address for advertising channels\nPREAMBLE_LEN_BITS = 8\nAA_LEN_BITS = 32\nHEADER_LEN_BITS = 16               # PDU header = 2 bytes\nCRC_LEN_BITS = 24                  # 3 bytes\nMAX_PAYLOAD_BYTES = 257            # spec max\n\nPDU_TYPE_NAMES = {\n    0x0: \"ADV_IND\",           0x1: \"ADV_DIRECT_IND\",\n    0x2: \"ADV_NONCONN_IND\",   0x3: \"SCAN_REQ\",\n    0x4: \"SCAN_RSP\",          0x5: \"CONNECT_IND\",\n    0x6: \"ADV_SCAN_IND\",      0x7: \"ADV_EXT_IND\",\n}\n\n# Apple Continuity subtypes (the byte after 0x4C 0x00 in manufacturer data)\nAPPLE_CONTINUITY = {\n    0x02: \"iBeacon\", 0x05: \"AirDrop\", 0x07: \"AirPods\", 0x09: \"AirPlay-Target\",\n    0x0A: \"AirPlay-Source\", 0x0C: \"Handoff\", 0x0D: \"Tethering-Tgt\",\n    0x0E: \"Tethering-Src\", 0x0F: \"Nearby-Action\", 0x10: \"Nearby-Info\",\n    0x12: \"FindMy\",\n}\n\n\ndef parse_ad_records(ad_payload):\n    \"\"\"Walk TLV AD records, return dict of interesting extracted info.\n\n    Returns keys it found: name, apple, ibeacon_uuid, services\n    \"\"\"\n    info = {}\n    i = 0\n    while i < len(ad_payload):\n        rec_len = ad_payload[i]\n        if rec_len == 0 or i + 1 + rec_len > len(ad_payload):\n            break\n        rec_type = ad_payload[i + 1]\n        rec_value = ad_payload[i + 2 : i + 1 + rec_len]\n        if rec_type in (0x08, 0x09):  # Local Name (Shortened / Complete)\n            try:\n                info[\"name\"] = rec_value.decode(\"utf-8\", errors=\"replace\").rstrip(\"\\x00\")\n            except Exception:\n                pass\n        elif rec_type == 0xFF and len(rec_value) >= 3:  # Manufacturer Data\n            company_id = rec_value[0] | (rec_value[1] << 8)\n            if company_id == 0x004C and len(rec_value) >= 3:  # Apple\n                subtype = rec_value[2]\n                info[\"apple\"] = APPLE_CONTINUITY.get(subtype, f\"Apple-0x{subtype:02X}\")\n                if subtype == 0x02 and len(rec_value) >= 23:  # iBeacon\n                    uuid_bytes = rec_value[4:20]\n                    info[\"ibeacon_uuid\"] = \"-\".join([\n                        uuid_bytes[0:4].hex(), uuid_bytes[4:6].hex(),\n                        uuid_bytes[6:8].hex(), uuid_bytes[8:10].hex(),\n                        uuid_bytes[10:16].hex(),\n                    ])\n        i += 1 + rec_len\n    return info\n\n\ndef bits_to_byte_lsbfirst(bits):\n    \"\"\"8 bits on air \u2192 1 byte. Air order is LSB-first within a byte.\"\"\"\n    b = 0\n    for i, bit in enumerate(bits):\n        b |= (bit & 1) << i\n    return b\n\n\ndef crc24_ble(data_bytes, init=0xAAAAAA):\n    \"\"\"BLE CRC-24, poly 0x65B (= x^24+x^10+x^9+x^6+x^4+x^3+x+1).\n\n    Uses the LSB-first LFSR formulation: bits enter from the LSB side, LFSR\n    shifts right, polynomial used is the bit-reversed form (0xDA6000). This\n    way the returned int matches the on-air CRC bytes interpreted LSB-first\n    per byte \u2014 same convention we use when assembling all other received bytes.\n\n    init=0xAAAAAA for advertising channels; for data channels, init is the\n    CRCInit field from CONNECT_IND (24-bit value, also bit-reversal-aware).\n    \"\"\"\n    state = init & 0xFFFFFF\n    poly_rev = 0xDA6000  # bit-reverse(0x00065B) over 24 bits\n    for byte in data_bytes:\n        for bit_idx in range(8):\n            in_bit = (byte >> bit_idx) & 1\n            state_bit = state & 1\n            state >>= 1\n            if in_bit ^ state_bit:\n                state ^= poly_rev\n    return state & 0xFFFFFF\n\n\ndef make_whitener(channel_index):\n    \"\"\"Return a generator that yields whitening bits for a given channel.\n\n    7-bit LFSR, taps at bits 6 and 2 (= polynomial x^7 + x^5 + 1, the actual\n    BLE on-air whitener \u2014 many spec citations of x^7+x^4+1 are using a different\n    bit convention that ends up equivalent to this in shift-left form).\n\n    Channel-index-to-init mapping was empirically determined:\n      ch 37 \u2192 init 0x58\n    (will need to derive ch 38 / ch 39 inits the same way when tested.)\n\n    Each whitening bit = LFSR[6] (the bit being shifted out).\n    \"\"\"\n    if channel_index == 37:\n        state = 0x58  # empirically derived\n    elif channel_index == 38:\n        state = 0x35  # empirically derived\n    elif channel_index == 39:\n        state = 0x5A  # placeholder \u2014 needs verification when LO can reach 2.48 GHz\n    else:\n        # Fallback for data channels \u2014 would need separate empirical derivation\n        state = 0x40 | (channel_index & 0x3F)\n    while True:\n        out = (state >> 6) & 1\n        fb = ((state >> 6) ^ (state >> 2)) & 1   # taps (6, 2), not (6, 3)\n        state = ((state << 1) & 0x7F) | fb\n        yield out\n\n\ndef dewhiten_bytes(byte_list, channel_index):\n    \"\"\"XOR each bit of each byte with the LFSR stream (bit 0 first).\"\"\"\n    wh = make_whitener(channel_index)\n    out = []\n    for b in byte_list:\n        nb = 0\n        for i in range(8):\n            in_bit = (b >> i) & 1\n            out_bit = in_bit ^ next(wh)\n            nb |= out_bit << i\n        out.append(nb)\n    return out\n\n\n# Precompute AA pattern as 32 bits in air order (LSB of byte0 first)\ndef aa_bits_lsbfirst(aa, nbits=32):\n    bits = []\n    for byte_i in range(nbits // 8):\n        byte = (aa >> (byte_i * 8)) & 0xFF\n        for bit_i in range(8):\n            bits.append((byte >> bit_i) & 1)\n    return bits\n\n\nAA_ADV_BITS = aa_bits_lsbfirst(AA_ADV)\n\n\nclass blk(gr.sync_block):\n    \"\"\"BLE LL decoder: bit stream in \u2192 printed packets out.\"\"\"\n\n    def __init__(self, channel_index=37, invert=False, debug=True):\n        gr.sync_block.__init__(\n            self,\n            name=\"BLE LL Decoder\",\n            # Input 0: bit stream from gfsk_demod (one bit per byte)\n            # Input 1: float32 power values from Complex-to-Mag^2 -> Keep 1 in N=4\n            #          (matched to bit rate so we get one power sample per bit)\n            in_sig=[np.uint8, np.float32],\n            out_sig=None,\n        )\n        self.channel_index = channel_index\n        self.invert = bool(invert)\n        self.debug = bool(debug)\n        self.current_power = 0.0  # most recently seen power sample\n        self.aa_power = 0.0       # snapshot at AA detection \u2014 that's the packet's RSSI\n\n        # sliding 32-bit shift register for AA detection\n        self.shiftreg = 0\n        self.shiftbits = 0           # how many bits we've shifted in so far\n        # Pre-pack AA into a single 32-bit int (in air-bit order LSB first)\n        self.aa_target = 0\n        for i, bit in enumerate(AA_ADV_BITS):\n            self.aa_target |= (bit & 1) << i\n        self.aa_mask = 0xFFFFFFFF\n\n        # state machine\n        self.state = \"SEARCH\"\n        self.pending_bits = []       # bit accumulator for current field\n        self.bits_needed = 0\n        self.header = None\n        self.payload_bytes = []\n        self.payload_len = 0\n\n        self.packets_seen = 0\n        self.packets_ok = 0\n\n    # --- helpers ----------------------------------------------------------\n\n    def reset_to_search(self):\n        self.state = \"SEARCH\"\n        self.pending_bits = []\n        self.bits_needed = 0\n        self.header = None\n        self.payload_bytes = []\n        self.payload_len = 0\n\n    def feed_searching(self, bit):\n        # shift register: newest bit at position 31 (MSB of 32-bit window),\n        # but since AA is air-order LSB-first, we shift in at position 0\n        # and the AA at position 0..31 == target when matched.\n        # Implementation: keep a window of last 32 bits with newest at bit 31.\n        self.shiftreg = ((self.shiftreg >> 1) | ((bit & 1) << 31)) & 0xFFFFFFFF\n        if self.shiftbits < 32:\n            self.shiftbits += 1\n            return\n        if self.shiftreg == self.aa_target:\n            # found AA \u2192 next 16 bits are PDU header (whitened)\n            self.state = \"HEADER\"\n            self.pending_bits = []\n            self.bits_needed = HEADER_LEN_BITS\n\n    def feed_collecting(self, bit):\n        self.pending_bits.append(bit & 1)\n        if len(self.pending_bits) < self.bits_needed:\n            return\n        # Convert collected bits to bytes (LSB-first within each byte)\n        nbytes = self.bits_needed // 8\n        raw_bytes = []\n        for i in range(nbytes):\n            raw_bytes.append(bits_to_byte_lsbfirst(self.pending_bits[i * 8:(i + 1) * 8]))\n\n        if self.state == \"HEADER\":\n            # whitener stream is *continuous* across header+payload+CRC,\n            # so we run dewhiten over each field with a fresh whitener and\n            # advance it the appropriate # of bits between fields.\n            # Simpler: dewhiten the whole packet at the end. For that, we\n            # need to keep RAW bytes here and dewhiten once we have everything.\n            self.header_raw = raw_bytes\n            # Parse the (still-whitened) length isn't valid yet \u2014 must dewhiten first.\n            # Dewhiten just the 2-byte header so we can read the length.\n            dh = dewhiten_bytes(raw_bytes, self.channel_index)\n            length = dh[1] & 0x3F   # low 6 bits = length (some specs use full 8)\n            self.payload_len = length\n            self.header_dewhitened = dh\n            if length == 0 or length > MAX_PAYLOAD_BYTES:\n\
+      \                # garbage; resync\n                self.reset_to_search()\n                return\n            # Now collect `length` bytes of payload (still whitened)\n            self.state = \"PAYLOAD\"\n            self.pending_bits = []\n            self.bits_needed = length * 8\n\n        elif self.state == \"PAYLOAD\":\n            self.payload_raw = raw_bytes\n            self.state = \"CRC\"\n            self.pending_bits = []\n            self.bits_needed = CRC_LEN_BITS\n\n        elif self.state == \"CRC\":\n            self.crc_raw = raw_bytes  # 3 bytes, whitened\n            # Also capture the NEXT 20 bytes (160 bits) past where we think the\n            # CRC ends \u2014 for debugging in case the real packet is longer than we think.\n            self.state = \"EXTRA\"\n            self.pending_bits = []\n            self.bits_needed = 20 * 8\n            self.extra_raw = []\n\n        elif self.state == \"EXTRA\":\n            self.extra_raw = raw_bytes\n            self._finish_packet()\n            self.reset_to_search()\n\n    def _finish_packet(self):\n        # whitener restarts at the START of the PDU; we used 2 bytes already\n        # to dewhiten the header, so we restart and dewhiten ALL (header+payload+crc).\n        full_raw = self.header_raw + self.payload_raw + self.crc_raw\n        full_dh = dewhiten_bytes(full_raw, self.channel_index)\n        hdr = full_dh[:2]\n        payload = full_dh[2:2 + self.payload_len]\n        crc_rx = full_dh[2 + self.payload_len:2 + self.payload_len + 3]\n        crc_rx_int = crc_rx[0] | (crc_rx[1] << 8) | (crc_rx[2] << 16)\n\n        # CRC is computed over header+payload, init 0x555555 for advertising\n        crc_calc = crc24_ble(hdr + payload, init=0xAAAAAA)\n\n        self.packets_seen += 1\n        pdu_type = hdr[0] & 0x0F\n        type_name = PDU_TYPE_NAMES.get(pdu_type, f\"TYPE_0x{pdu_type:X}\")\n        tx_add = (hdr[0] >> 6) & 1\n        ok = \"OK\" if crc_calc == crc_rx_int else \"BAD\"\n        if ok == \"OK\":\n            self.packets_ok += 1\n\n        # advertising address is first 6 bytes of payload (little-endian)\n        addr_str = \"??:??:??:??:??:??\"\n        if len(payload) >= 6:\n            addr_str = \":\".join(f\"{b:02X}\" for b in payload[5::-1])\n        ad_payload = bytes(payload[6:]) if len(payload) > 6 else b\"\"\n\n        # Parse AD records for friendly info (name, Apple continuity type, iBeacon UUID)\n        info = parse_ad_records(ad_payload) if ok == \"OK\" else {}\n        info_parts = []\n        if \"name\" in info:\n            info_parts.append(f'name=\"{info[\"name\"]}\"')\n        if \"apple\" in info:\n            info_parts.append(f\"apple={info['apple']}\")\n        if \"ibeacon_uuid\" in info:\n            info_parts.append(f\"ibeacon={info['ibeacon_uuid']}\")\n        info_str = (\" \" + \" \".join(info_parts)) if info_parts else \"\"\n        # RSSI in dB relative to ADC full scale (Pluto raw IQ is int12 \u2192 magnitude\n        # squared is roughly 0..16M; dBFS \u2248 10*log10(power / 2^24))\n        import math\n        if self.aa_power > 0:\n            rssi_db = 10 * math.log10(self.aa_power) - 10 * math.log10(2 ** 24)\n            rssi_str = f\" rssi={rssi_db:+.1f}dBFS\"\n        else:\n            rssi_str = \"\"\n\n        print(\n            f\"[ch{self.channel_index:>2}] {type_name:<14} \"\n            f\"addr={addr_str} txadd={tx_add} len={self.payload_len:>2} \"\n            f\"crc={ok} crc_rx={crc_rx_int:06X} crc_calc={crc_calc:06X}\"\n            f\"{rssi_str}{info_str} \"\n            f\"adv_data={ad_payload.hex()} \"\n            f\"({self.packets_ok}/{self.packets_seen} OK)\"\n        )\n        if self.debug:\n            raw_hex = bytes(full_raw).hex()\n            extra_hex = bytes(self.extra_raw).hex() if hasattr(self, 'extra_raw') else \"\"\n            print(f\"  PKT raw={raw_hex} extra={extra_hex} len={self.payload_len}\")\n\n    # --- GR streaming hook ------------------------------------------------\n\n    def work(self, input_items, output_items):\n        bits = input_items[0]\n        power = input_items[1]\n        n = min(len(bits), len(power))\n        inv = self.invert\n        for i in range(n):\n            self.current_power = float(power[i])\n            bit = int(bits[i]) ^ inv\n            if self.state == \"SEARCH\":\n                # On AA detection, snap the power value as the packet RSSI\n                prev_state = self.state\n                self.feed_searching(bit)\n                if self.state != prev_state:  # transitioned out of SEARCH = AA matched\n                    self.aa_power = self.current_power\n            else:\n                self.feed_collecting(bit)\n        return n\n"
+    affinity: ''
+    alias: ''
+    channel_index: '38'
+    comment: ''
+    debug: 'True'
+    invert: 'False'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache: "('BLE LL Decoder', 'blk', [('channel_index', '37'), ('invert', 'False'), ('debug', 'True')], [('0', 'byte', 1)], [], 'BLE LL decoder: bit stream in \u2192 printed packets out.', ['channel_index', 'debug', 'invert'])"
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 1216
+    - 484.0
+    rotation: 0
+    state: enabled
+- name: freq_xlating_fir_filter_xxx_0
+  id: freq_xlating_fir_filter_xxx
+  parameters:
+    affinity: ''
+    alias: ''
+    center_freq: -12e6
+    comment: ''
+    decim: '8'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samp_rate: samp_rate
+    taps: firdes.low_pass(1.0, samp_rate, 1_000_000, 250_000, window.WIN_HAMMING)
+    type: ccc
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 480
+    - 356.0
+    rotation: 0
+    state: enabled
+- name: freq_xlating_fir_filter_xxx_0_0
+  id: freq_xlating_fir_filter_xxx
+  parameters:
+    affinity: ''
+    alias: ''
+    center_freq: 12e6
+    comment: ''
+    decim: '8'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samp_rate: samp_rate
+    taps: firdes.low_pass(1.0, samp_rate, 1_000_000, 250_000, window.WIN_HAMMING)
+    type: ccc
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 472
+    - 476.0
+    rotation: 0
+    state: enabled
+- name: iio_pluto_source_0
+  id: iio_pluto_source
+  parameters:
+    affinity: ''
+    alias: ''
+    auto_filter: 'False'
+    bandwidth: rf_bw
+    bbdc: 'True'
+    buffer_size: '200000'
+    comment: ''
+    filter: ''
+    frequency: int(tune_center)
+    gain1: '''manual'''
+    manual_gain1: '64'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    quadrature: 'True'
+    rfdc: 'True'
+    samplerate: samp_rate
+    uri: ''
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 80
+    - 204.0
+    rotation: 0
+    state: enabled
+- name: qtgui_waterfall_sink_x_0
+  id: qtgui_waterfall_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    axislabels: 'True'
+    bw: samp_rate
+    color1: '0'
+    color10: '0'
+    color2: '0'
+    color3: '0'
+    color4: '0'
+    color5: '0'
+    color6: '0'
+    color7: '0'
+    color8: '0'
+    color9: '0'
+    comment: ''
+    fc: tune_center
+    fftsize: '32768'
+    freqhalf: 'True'
+    grid: 'False'
+    gui_hint: ''
+    int_max: '10'
+    int_min: '-140'
+    label1: ''
+    label10: ''
+    label2: ''
+    label3: ''
+    label4: ''
+    label5: ''
+    label6: ''
+    label7: ''
+    label8: ''
+    label9: ''
+    legend: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: '""'
+    nconnections: '1'
+    showports: 'False'
+    type: complex
+    update_time: '0.10'
+    wintype: window.WIN_BLACKMAN_hARRIS
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 704
+    - 252.0
+    rotation: 0
+    state: enabled
+- name: rational_resampler_xxx_0
+  id: rational_resampler_xxx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 3.84 MSPS -> 4.0 MSPS so gfsk_demod sees integer sps=4
+    decim: '24'
+    fbw: '0'
+    interp: '25'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    taps: '[]'
+    type: ccc
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 680
+    - 360.0
+    rotation: 0
+    state: enabled
+- name: rational_resampler_xxx_0_0
+  id: rational_resampler_xxx
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 3.84 MSPS -> 4.0 MSPS so gfsk_demod sees integer sps=4
+    decim: '24'
+    fbw: '0'
+    interp: '25'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    taps: '[]'
+    type: ccc
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 680
+    - 480.0
+    rotation: 0
+    state: enabled
+- name: blocks_complex_to_mag_squared_0
+  id: blocks_complex_to_mag_squared
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: RSSI tap
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 580
+    - 500
+    rotation: 0
+    state: enabled
+- name: blocks_keep_one_in_n_0
+  id: blocks_keep_one_in_n
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 4 MSPS -> 1 MSPS (match bit rate)
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    n: '4'
+    type: float
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 760
+    - 500
+    rotation: 0
+    state: enabled
+- name: blocks_complex_to_mag_squared_0_0
+  id: blocks_complex_to_mag_squared
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: RSSI tap
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 580
+    - 600
+    rotation: 0
+    state: enabled
+- name: blocks_keep_one_in_n_0_0
+  id: blocks_keep_one_in_n
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 4 MSPS -> 1 MSPS (match bit rate)
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    n: '4'
+    type: float
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate:
+    - 760
+    - 600
+    rotation: 0
+    state: enabled
+connections:
+- - digital_gfsk_demod_0
+  - '0'
+  - epy_block_0
+  - '0'
+- - digital_gfsk_demod_0_0
+  - '0'
+  - epy_block_0_0
+  - '0'
+- - freq_xlating_fir_filter_xxx_0
+  - '0'
+  - rational_resampler_xxx_0
+  - '0'
+- - iio_pluto_source_0
+  - '0'
+  - freq_xlating_fir_filter_xxx_0
+  - '0'
+- - iio_pluto_source_0
+  - '0'
+  - qtgui_waterfall_sink_x_0
+  - '0'
+- - rational_resampler_xxx_0
+  - '0'
+  - digital_gfsk_demod_0
+  - '0'
+- - rational_resampler_xxx_0_0
+  - '0'
+  - digital_gfsk_demod_0_0
+  - '0'
+- - iio_pluto_source_0
+  - '0'
+  - freq_xlating_fir_filter_xxx_0_0
+  - '0'
+- - freq_xlating_fir_filter_xxx_0_0
+  - '0'
+  - rational_resampler_xxx_0_0
+  - '0'
+- - rational_resampler_xxx_0
+  - '0'
+  - blocks_complex_to_mag_squared_0
+  - '0'
+- - blocks_complex_to_mag_squared_0
+  - '0'
+  - blocks_keep_one_in_n_0
+  - '0'
+- - blocks_keep_one_in_n_0
+  - '0'
+  - epy_block_0
+  - '1'
+- - rational_resampler_xxx_0_0
+  - '0'
+  - blocks_complex_to_mag_squared_0_0
+  - '0'
+- - blocks_complex_to_mag_squared_0_0
+  - '0'
+  - blocks_keep_one_in_n_0_0
+  - '0'
+- - blocks_keep_one_in_n_0_0
+  - '0'
+  - epy_block_0_0
+  - '1'
+metadata:
+  file_format: 1
+  grc_version: 3.10.12.0
