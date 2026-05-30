@@ -10,11 +10,12 @@ If it accepts it, the algorithms are internally consistent and field
 failures are from the radio chain (sync, demod polarity, RF, etc.).
 """
 
-import sys, importlib.util
+import os, sys, importlib.util
 
 # Load the decoder module from the same dir
+_HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location(
-    "ble_decoder", "/Users/christophernelson/Software/ble_decoder.py"
+    "ble_decoder", os.path.join(_HERE, "ble_decoder.py")
 )
 bd = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bd)

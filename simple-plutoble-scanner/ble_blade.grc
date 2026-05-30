@@ -1,0 +1,419 @@
+options:
+  parameters:
+    author: ''
+    catch_exceptions: 'True'
+    category: '[GRC Hier Blocks]'
+    cmake_opt: ''
+    comment: ''
+    copyright: ''
+    description: 'bladeRF half of the dual capture: covers ch37+38 via two
+      xlating filters at +/-12 MHz from 2.414 GHz center. Runs as its own
+      process (paired with ble_pluto.grc) to dodge libusb in-process
+      serialization. Logs to the shared sqlite db.'
+    gen_cmake: 'On'
+    gen_linking: dynamic
+    generate_options: qt_gui
+    hier_block_src_path: '.:'
+    id: ble_blade
+    max_nouts: '0'
+    output_language: python
+    placement: (0,0)
+    qt_qss_theme: ''
+    realtime_scheduling: ''
+    run: 'True'
+    run_command: '{python} -u {filename}'
+    run_options: prompt
+    sizing_mode: fixed
+    thread_safe_setters: ''
+    title: BLE capture (bladeRF ch37/38)
+    window_size: (1600,1000)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [8, 8]
+    rotation: 0
+    state: enabled
+
+blocks:
+# -------- Variables --------
+- name: db_path
+  id: variable
+  parameters:
+    comment: ''
+    value: '"ble_scan.db"'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [600, 8]
+    rotation: 0
+    state: enabled
+- name: blade_samp_rate
+  id: variable
+  parameters:
+    comment: ''
+    value: '28000000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [200, 8]
+    rotation: 0
+    state: enabled
+- name: blade_center
+  id: variable
+  parameters:
+    comment: 'midpoint of ch37/ch38'
+    value: 2.414e9
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [320, 8]
+    rotation: 0
+    state: enabled
+# -------- bladeRF source (covers ch37+38) --------
+- name: soapy_bladerf_source_0
+  id: soapy_bladerf_source
+  parameters:
+    affinity: ''
+    alias: ''
+    bandwidth: '24000000'
+    center_freq: blade_center
+    comment: fc32 (complex) mode — proven path that hits 28 MSPS without underrun
+    dev_args: buflen=32768,buffers=128
+    freq_correction: '0'
+    gain: '40.0'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samp_rate: blade_samp_rate
+    type: complex
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [80, 460]
+    rotation: 0
+    state: enabled
+- name: blade_waterfall
+  id: qtgui_waterfall_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    axislabels: 'True'
+    bw: blade_samp_rate
+    color1: '0'
+    color10: '0'
+    color2: '0'
+    color3: '0'
+    color4: '0'
+    color5: '0'
+    color6: '0'
+    color7: '0'
+    color8: '0'
+    color9: '0'
+    comment: 'bladeRF wideband view (ch37+38)'
+    fc: blade_center
+    fftsize: '4096'
+    freqhalf: 'True'
+    grid: 'False'
+    gui_hint: ''
+    int_max: '10'
+    int_min: '-140'
+    label1: ''
+    label10: ''
+    label2: ''
+    label3: ''
+    label4: ''
+    label5: ''
+    label6: ''
+    label7: ''
+    label8: ''
+    label9: ''
+    legend: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: '"bladeRF"'
+    nconnections: '1'
+    showports: 'False'
+    type: complex
+    update_time: '0.10'
+    wintype: window.WIN_BLACKMAN_hARRIS
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [560, 360]
+    rotation: 0
+    state: enabled
+
+# -------- bladeRF ch37 chain --------
+- name: blade_ch37_xlate
+  id: freq_xlating_fir_filter_xxx
+  parameters:
+    affinity: ''
+    alias: ''
+    center_freq: -12e6
+    comment: 'extract ch37 (2402 MHz)'
+    decim: '7'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samp_rate: blade_samp_rate
+    taps: firdes.low_pass(1.0, blade_samp_rate, 1_000_000, 250_000, window.WIN_HAMMING)
+    type: ccc
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [560, 460]
+    rotation: 0
+    state: enabled
+- name: blade_ch37_mag2
+  id: blocks_complex_to_mag_squared
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [800, 420]
+    rotation: 0
+    state: enabled
+- name: blade_ch37_keep1n
+  id: blocks_keep_one_in_n
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: '4 MSPS -> 1 MSPS'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    n: '4'
+    type: float
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [968, 420]
+    rotation: 0
+    state: enabled
+- name: blade_ch37_gfsk
+  id: digital_gfsk_demod
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    freq_error: '0.0'
+    gain_mu: '0.175'
+    log: 'False'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    mu: '0.5'
+    omega_relative_limit: '0.005'
+    samples_per_symbol: '4'
+    sensitivity: '1.0'
+    verbose: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [800, 500]
+    rotation: 0
+    state: enabled
+- name: blade_ch37_decoder
+  id: epy_block
+  parameters:
+    _source_code: |
+      """Shim: thin GRC wrapper around ble_decoder_sqlite.blk."""
+      import os, sys
+      _HERE = os.path.expanduser('~/Software/rf-parts/simple-plutoble-scanner')
+      if _HERE not in sys.path:
+          sys.path.insert(0, _HERE)
+      from ble_decoder_sqlite import blk as _Parent
+
+
+      class blk(_Parent):
+          def __init__(self, channel_index=37, sdr_name="bladerf",
+                       db_path="ble_scan.db", invert=False, debug=False):
+              _Parent.__init__(self, channel_index=channel_index,
+                               sdr_name=sdr_name, db_path=db_path,
+                               invert=invert, debug=debug)
+    affinity: ''
+    alias: ''
+    channel_index: '37'
+    sdr_name: '"bladerf"'
+    db_path: db_path
+    invert: 'False'
+    debug: 'False'
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache: "('blk', 'blk', [('channel_index', '37'), ('sdr_name', \"'bladerf'\"\
+      ), ('db_path', \"'ble_scan.db'\"), ('invert', 'False'), ('debug', 'False')],\
+      \ [('0', 'byte', 1), ('1', 'float', 1)], [], 'Shim: thin GRC wrapper around\
+      \ ble_decoder_sqlite.blk.', ['channel_index', 'db_path', 'debug', 'invert',\
+      \ 'sdr_name'])"
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1144, 460]
+    rotation: 0
+    state: enabled
+
+# -------- bladeRF ch38 chain --------
+- name: blade_ch38_xlate
+  id: freq_xlating_fir_filter_xxx
+  parameters:
+    affinity: ''
+    alias: ''
+    center_freq: 12e6
+    comment: 'extract ch38 (2426 MHz)'
+    decim: '7'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    samp_rate: blade_samp_rate
+    taps: firdes.low_pass(1.0, blade_samp_rate, 1_000_000, 250_000, window.WIN_HAMMING)
+    type: ccc
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [560, 620]
+    rotation: 0
+    state: enabled
+- name: blade_ch38_mag2
+  id: blocks_complex_to_mag_squared
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [800, 580]
+    rotation: 0
+    state: enabled
+- name: blade_ch38_keep1n
+  id: blocks_keep_one_in_n
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: '4 MSPS -> 1 MSPS'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    n: '4'
+    type: float
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [968, 580]
+    rotation: 0
+    state: enabled
+- name: blade_ch38_gfsk
+  id: digital_gfsk_demod
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    freq_error: '0.0'
+    gain_mu: '0.175'
+    log: 'False'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    mu: '0.5'
+    omega_relative_limit: '0.005'
+    samples_per_symbol: '4'
+    sensitivity: '1.0'
+    verbose: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [800, 660]
+    rotation: 0
+    state: enabled
+- name: blade_ch38_decoder
+  id: epy_block
+  parameters:
+    _source_code: |
+      """Shim: thin GRC wrapper around ble_decoder_sqlite.blk."""
+      import os, sys
+      _HERE = os.path.expanduser('~/Software/rf-parts/simple-plutoble-scanner')
+      if _HERE not in sys.path:
+          sys.path.insert(0, _HERE)
+      from ble_decoder_sqlite import blk as _Parent
+
+
+      class blk(_Parent):
+          def __init__(self, channel_index=38, sdr_name="bladerf",
+                       db_path="ble_scan.db", invert=False, debug=False):
+              _Parent.__init__(self, channel_index=channel_index,
+                               sdr_name=sdr_name, db_path=db_path,
+                               invert=invert, debug=debug)
+    affinity: ''
+    alias: ''
+    channel_index: '38'
+    sdr_name: '"bladerf"'
+    db_path: db_path
+    invert: 'False'
+    debug: 'False'
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache: "('blk', 'blk', [('channel_index', '38'), ('sdr_name', \"'bladerf'\"\
+      ), ('db_path', \"'ble_scan.db'\"), ('invert', 'False'), ('debug', 'False')],\
+      \ [('0', 'byte', 1), ('1', 'float', 1)], [], 'Shim: thin GRC wrapper around\
+      \ ble_decoder_sqlite.blk.', ['channel_index', 'db_path', 'debug', 'invert',\
+      \ 'sdr_name'])"
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1144, 620]
+    rotation: 0
+    state: enabled
+
+connections:
+# bladeRF source fan-out
+- [soapy_bladerf_source_0, '0', blade_waterfall, '0']
+- [soapy_bladerf_source_0, '0', blade_ch37_xlate, '0']
+- [soapy_bladerf_source_0, '0', blade_ch38_xlate, '0']
+# bladeRF ch37 chain
+- [blade_ch37_xlate, '0', blade_ch37_mag2, '0']
+- [blade_ch37_xlate, '0', blade_ch37_gfsk, '0']
+- [blade_ch37_mag2, '0', blade_ch37_keep1n, '0']
+- [blade_ch37_keep1n, '0', blade_ch37_decoder, '1']
+- [blade_ch37_gfsk, '0', blade_ch37_decoder, '0']
+# bladeRF ch38 chain
+- [blade_ch38_xlate, '0', blade_ch38_mag2, '0']
+- [blade_ch38_xlate, '0', blade_ch38_gfsk, '0']
+- [blade_ch38_mag2, '0', blade_ch38_keep1n, '0']
+- [blade_ch38_keep1n, '0', blade_ch38_decoder, '1']
+- [blade_ch38_gfsk, '0', blade_ch38_decoder, '0']
+
+metadata:
+  file_format: 1
+  grc_version: 3.10.12.0
