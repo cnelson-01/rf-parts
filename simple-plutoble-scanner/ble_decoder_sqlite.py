@@ -163,13 +163,31 @@ CREATE TABLE IF NOT EXISTS ble_packets (
     apple       TEXT,
     ibeacon_uuid TEXT,
     adv_data    BLOB,
-    raw         BLOB
+    raw         BLOB,
+    phase_rad   REAL,
+    aoa_deg     REAL
 );
 CREATE INDEX IF NOT EXISTS idx_ble_ts      ON ble_packets(ts);
 CREATE INDEX IF NOT EXISTS idx_ble_addr    ON ble_packets(addr);
 CREATE INDEX IF NOT EXISTS idx_ble_channel ON ble_packets(channel);
 CREATE INDEX IF NOT EXISTS idx_ble_sdr     ON ble_packets(sdr);
 """
+
+# Columns added after the first release. CREATE TABLE IF NOT EXISTS won't add
+# them to a pre-existing db, so migrate them in explicitly. Only the AoA
+# decoder (ble_aoa_decoder.py) populates these; the ch37/38/39 capture
+# decoders leave them NULL.
+_EXTRA_COLUMNS = [
+    ("phase_rad", "REAL"),   # inter-channel phase Δφ = φ0 − φ1 (radians)
+    ("aoa_deg",   "REAL"),   # estimated angle of arrival (degrees, broadside=0)
+]
+
+
+def _migrate(conn):
+    have = {row[1] for row in conn.execute("PRAGMA table_info(ble_packets)")}
+    for col, decl in _EXTRA_COLUMNS:
+        if col not in have:
+            conn.execute(f"ALTER TABLE ble_packets ADD COLUMN {col} {decl}")
 
 
 # Class-level guard so the first decoder that opens the db sets up the
@@ -186,6 +204,7 @@ def _open_db(db_path):
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.executescript(SCHEMA)
+            _migrate(conn)
             _DB_INITIALISED.add(db_path)
     return conn
 

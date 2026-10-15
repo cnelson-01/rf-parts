@@ -1,0 +1,487 @@
+options:
+  parameters:
+    author: ''
+    catch_exceptions: 'True'
+    category: '[GRC Hier Blocks]'
+    cmake_opt: ''
+    comment: ''
+    copyright: ''
+    description: 'BLE Angle-of-Arrival capture on a bladeRF 2.0 micro: two
+      phase-coherent RX channels (RX0 reference + RX1) both tuned to ch37
+      (2.402 GHz). RX0 drives the BLE decode chain; RX0*conj(RX1) feeds the AoA
+      decoder, which logs phase_rad + aoa_deg to the shared sqlite db. Note:
+      this bladeRF cannot run 2-channel RX and TX at once (bladerf_sync_config
+      -3), so calibration uses an external common reference at broadside rather
+      than an on-board TX tone -- see run_aoa.sh / README for the procedure.'
+    gen_cmake: 'On'
+    gen_linking: dynamic
+    generate_options: qt_gui
+    hier_block_src_path: '.:'
+    id: ble_aoa
+    max_nouts: '0'
+    output_language: python
+    placement: (0,0)
+    qt_qss_theme: ''
+    realtime_scheduling: ''
+    run: 'True'
+    run_command: '{python} -u {filename}'
+    run_options: prompt
+    sizing_mode: fixed
+    thread_safe_setters: ''
+    title: BLE AoA capture (bladeRF ch37, 2x RX)
+    window_size: (1600,1000)
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [8, 8]
+    rotation: 0
+    state: enabled
+
+blocks:
+# -------- Variables --------
+- name: db_path
+  id: variable
+  parameters:
+    comment: ''
+    value: '"ble_scan.db"'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [600, 8]
+    rotation: 0
+    state: enabled
+- name: aoa_samp_rate
+  id: variable
+  parameters:
+    comment: '4 MSPS = 4 samples/symbol for the BLE 1 Msym/s GFSK'
+    value: '4000000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [200, 8]
+    rotation: 0
+    state: enabled
+- name: aoa_rf_bw
+  id: variable
+  parameters:
+    comment: ''
+    value: '2000000'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [320, 8]
+    rotation: 0
+    state: enabled
+- name: aoa_center
+  id: variable
+  parameters:
+    comment: 'ch37 = 2402 MHz (zero-IF). See note on DC offset below.'
+    value: 2.402e9
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [440, 8]
+    rotation: 0
+    state: enabled
+- name: antenna_spacing_m
+  id: variable
+  parameters:
+    comment: 'array element spacing; ~lambda/2 at 2.402 GHz (lambda=0.1248 m)'
+    value: '0.0625'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [200, 88]
+    rotation: 0
+    state: enabled
+- name: rx_gain
+  id: variable
+  parameters:
+    comment: ''
+    value: '40'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [320, 88]
+    rotation: 0
+    state: enabled
+- name: cal_on
+  id: variable_qtgui_toggle_button_msg
+  parameters:
+    comment: 'Press while a strong common reference sits at broadside (0°) to
+      measure phi_cal; release to resume AoA decoding. Persisted to aoa_cal.json.'
+    value: '0'
+    type: int
+    label: CAPTURE phi_cal  (reference at 0°, then release)
+    initPressed: 'False'
+    pressed: '1'
+    released: '0'
+    outputmsgname: value
+    relBackgroundColor: default
+    relFontColor: default
+    pressBackgroundColor: orange
+    pressFontColor: black
+    gui_hint: ''
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [800, 16]
+    rotation: 0
+    state: enabled
+
+# -------- bladeRF 2x RX source (RX0 reference + RX1), both on ch37 --------
+# Generic Soapy Source: the device-specific bladeRF block is hard-locked to a
+# single channel, so we use the generic one to get nchan=2. Both channels
+# share the AD9361 LO, so they are phase-coherent (the whole basis for AoA).
+- name: aoa_source
+  id: soapy_source
+  parameters:
+    comment: 'nchan=2, both tuned to aoa_center. dc_removal MUST be False: this
+      bladeRF reports hasDCOffsetMode=False and gr-soapy throws on a True
+      request. Disabling auto-DC is also correct for AoA — per-channel automatic
+      DC removal could differ and skew the inter-channel phase.'
+    nchan: '2'
+    devname: bladerf
+    type: fc32
+    samp_rate: aoa_samp_rate
+    dev_args: ''
+    stream_args: ''
+    center_freq0: aoa_center
+    gain_mode0: Overall
+    overall_gain0: rx_gain
+    ant0: RX
+    bw0: aoa_rf_bw
+    dc_removal0: 'False'
+    agc0: 'False'
+    center_freq1: aoa_center
+    gain_mode1: Overall
+    overall_gain1: rx_gain
+    ant1: RX
+    bw1: aoa_rf_bw
+    dc_removal1: 'False'
+    agc1: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [64, 220]
+    rotation: 0
+    state: enabled
+
+# -------- BLE decode chain on RX0 (the reference antenna) --------
+- name: ref_gfsk
+  id: digital_gfsk_demod
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    freq_error: '0.0'
+    gain_mu: '0.175'
+    log: 'False'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    mu: '0.5'
+    omega_relative_limit: '0.005'
+    samples_per_symbol: '4'
+    sensitivity: '1.0'
+    verbose: 'False'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [400, 300]
+    rotation: 0
+    state: enabled
+- name: ref_mag2
+  id: blocks_complex_to_mag_squared
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [400, 396]
+    rotation: 0
+    state: enabled
+- name: ref_keep
+  id: blocks_keep_one_in_n
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: '4 MSPS -> 1 MSPS'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    n: '4'
+    type: float
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [600, 396]
+    rotation: 0
+    state: enabled
+
+# -------- AoA cross-product: RX0 * conj(RX1) --------
+- name: cross
+  id: blocks_multiply_conjugate_cc
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 'arg = phi0 - phi1; carrier cancels'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [400, 520]
+    rotation: 0
+    state: enabled
+- name: cross_keep
+  id: blocks_keep_one_in_n
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: '4 MSPS -> 1 MSPS, aligned with power'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    n: '4'
+    type: complex
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [600, 520]
+    rotation: 0
+    state: enabled
+- name: cross_arg
+  id: blocks_complex_to_arg
+  parameters:
+    affinity: ''
+    alias: ''
+    comment: 'live inter-channel phase (rad)'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    vlen: '1'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [800, 600]
+    rotation: 0
+    state: enabled
+
+# -------- AoA decoder EPB (bits + power + cross-product -> angle) --------
+- name: aoa_decoder
+  id: epy_block
+  parameters:
+    _source_code: |
+      """Shim: thin GRC wrapper around ble_aoa_decoder.blk."""
+      import os, sys
+      _HERE = os.path.expanduser('~/Software/rf-parts/simple-plutoble-scanner')
+      if _HERE not in sys.path:
+          sys.path.insert(0, _HERE)
+      from ble_aoa_decoder import blk as _Parent
+
+
+      class blk(_Parent):
+          def __init__(self, channel_index=37, sdr_name="bladerf_aoa",
+                       db_path="ble_scan.db", center_freq=2.402e9,
+                       antenna_spacing_m=0.0625, cal_active=False,
+                       cal_file="aoa_cal.json", invert=False, debug=False):
+              _Parent.__init__(self, channel_index=channel_index,
+                               sdr_name=sdr_name, db_path=db_path,
+                               center_freq=center_freq,
+                               antenna_spacing_m=antenna_spacing_m,
+                               cal_active=cal_active, cal_file=cal_file,
+                               invert=invert, debug=debug)
+    affinity: ''
+    alias: ''
+    channel_index: '37'
+    sdr_name: '"bladerf_aoa"'
+    db_path: db_path
+    center_freq: aoa_center
+    antenna_spacing_m: antenna_spacing_m
+    cal_active: cal_on
+    cal_file: '"aoa_cal.json"'
+    invert: 'False'
+    debug: 'False'
+    comment: ''
+    maxoutbuf: '0'
+    minoutbuf: '0'
+  states:
+    _io_cache: "('blk', 'blk', [('channel_index', '37'), ('sdr_name', \"'bladerf_aoa'\"\
+      ), ('db_path', \"'ble_scan.db'\"), ('center_freq', '2402000000.0'), ('antenna_spacing_m',\
+      \ '0.0625'), ('cal_active', 'False'), ('cal_file', \"'aoa_cal.json'\"), ('invert',\
+      \ 'False'), ('debug', 'False')], [('0', 'byte', 1), ('1', 'float', 1), ('2',\
+      \ 'complex', 1)], [], 'Shim: thin GRC wrapper around ble_aoa_decoder.blk.',\
+      \ ['antenna_spacing_m', 'cal_active', 'cal_file', 'center_freq', 'channel_index',\
+      \ 'db_path', 'debug', 'invert', 'sdr_name'])"
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [840, 396]
+    rotation: 0
+    state: enabled
+
+# -------- Scopes --------
+- name: aoa_waterfall
+  id: qtgui_waterfall_sink_x
+  parameters:
+    affinity: ''
+    alias: ''
+    alpha1: '1.0'
+    alpha10: '1.0'
+    alpha2: '1.0'
+    alpha3: '1.0'
+    alpha4: '1.0'
+    alpha5: '1.0'
+    alpha6: '1.0'
+    alpha7: '1.0'
+    alpha8: '1.0'
+    alpha9: '1.0'
+    axislabels: 'True'
+    bw: aoa_samp_rate
+    color1: '0'
+    color10: '0'
+    color2: '0'
+    color3: '0'
+    color4: '0'
+    color5: '0'
+    color6: '0'
+    color7: '0'
+    color8: '0'
+    color9: '0'
+    comment: 'RX0 — see ch37 traffic + the calibration reference when present'
+    fc: aoa_center
+    fftsize: '4096'
+    freqhalf: 'True'
+    grid: 'False'
+    gui_hint: ''
+    int_max: '10'
+    int_min: '-140'
+    label1: ''
+    label10: ''
+    label2: ''
+    label3: ''
+    label4: ''
+    label5: ''
+    label6: ''
+    label7: ''
+    label8: ''
+    label9: ''
+    legend: 'True'
+    maxoutbuf: '0'
+    minoutbuf: '0'
+    name: '"AoA RX0 (ch37)"'
+    nconnections: '1'
+    showports: 'False'
+    type: complex
+    update_time: '0.10'
+    wintype: window.WIN_BLACKMAN_hARRIS
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [400, 180]
+    rotation: 0
+    state: enabled
+- name: phase_num
+  id: qtgui_number_sink
+  parameters:
+    affinity: ''
+    alias: ''
+    autoscale: 'False'
+    avg: '0.1'
+    color1: ("black", "black")
+    color10: ("black", "black")
+    color2: ("black", "black")
+    color3: ("black", "black")
+    color4: ("black", "black")
+    color5: ("black", "black")
+    color6: ("black", "black")
+    color7: ("black", "black")
+    color8: ("black", "black")
+    color9: ("black", "black")
+    comment: 'raw inter-channel phase (rad), before phi_cal subtraction'
+    factor1: '1'
+    factor10: '1'
+    factor2: '1'
+    factor3: '1'
+    factor4: '1'
+    factor5: '1'
+    factor6: '1'
+    factor7: '1'
+    factor8: '1'
+    factor9: '1'
+    graph_type: qtgui.NUM_GRAPH_HORIZ
+    gui_hint: ''
+    label1: raw dphi (rad)
+    label10: ''
+    label2: ''
+    label3: ''
+    label4: ''
+    label5: ''
+    label6: ''
+    label7: ''
+    label8: ''
+    label9: ''
+    max: '3.2'
+    min: '-3.2'
+    name: '""'
+    nconnections: '1'
+    type: float
+    unit1: rad
+    unit10: ''
+    unit2: ''
+    unit3: ''
+    unit4: ''
+    unit5: ''
+    unit6: ''
+    unit7: ''
+    unit8: ''
+    unit9: ''
+    update_time: '0.10'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1040, 584]
+    rotation: 0
+    state: enabled
+
+connections:
+# RX0 fan-out: BLE decode + cross-product + waterfall
+- [aoa_source, '0', ref_gfsk, '0']
+- [aoa_source, '0', ref_mag2, '0']
+- [aoa_source, '0', aoa_waterfall, '0']
+- [aoa_source, '0', cross, '0']
+- [aoa_source, '1', cross, '1']
+# RX0 BLE chain -> decoder in0 (bits) / in1 (power)
+- [ref_gfsk, '0', aoa_decoder, '0']
+- [ref_mag2, '0', ref_keep, '0']
+- [ref_keep, '0', aoa_decoder, '1']
+# cross-product -> decoder in2 + live phase number
+- [cross, '0', cross_keep, '0']
+- [cross_keep, '0', aoa_decoder, '2']
+- [cross_keep, '0', cross_arg, '0']
+- [cross_arg, '0', phase_num, '0']
+
+metadata:
+  file_format: 1

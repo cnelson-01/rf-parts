@@ -1,0 +1,327 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		019204C804D21991D0709462 /* RSSIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C3A6BEC8373222FBB552688 /* RSSIClient.swift */; };
+		0FFD0B4B51FAE7675A9F5BE2 /* BLERangeTesterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A8A0BF7F873CEE699426032 /* BLERangeTesterApp.swift */; };
+		313A787B56F9D42E37814F79 /* AoAPlotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1488237E93179176773968F1 /* AoAPlotView.swift */; };
+		6831C1A091A7DF781965A91F /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F13E244490BC80A7D5E810 /* ContentView.swift */; };
+		C60180E1F5C29B8A6F6325D4 /* BLEManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16CE203FE8584F637807849 /* BLEManager.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1488237E93179176773968F1 /* AoAPlotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AoAPlotView.swift; sourceTree = "<group>"; };
+		32F13E244490BC80A7D5E810 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		3A8A0BF7F873CEE699426032 /* BLERangeTesterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLERangeTesterApp.swift; sourceTree = "<group>"; };
+		3C3A6BEC8373222FBB552688 /* RSSIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSSIClient.swift; sourceTree = "<group>"; };
+		4F5D43CAF872601795907BA1 /* Generated-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Generated-Info.plist"; sourceTree = "<group>"; };
+		A16CE203FE8584F637807849 /* BLEManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEManager.swift; sourceTree = "<group>"; };
+		C72DD24503C847E2F8718F2D /* BLERangeTester.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BLERangeTester.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		302ED84183634404376902A2 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				1488237E93179176773968F1 /* AoAPlotView.swift */,
+				A16CE203FE8584F637807849 /* BLEManager.swift */,
+				3A8A0BF7F873CEE699426032 /* BLERangeTesterApp.swift */,
+				32F13E244490BC80A7D5E810 /* ContentView.swift */,
+				4F5D43CAF872601795907BA1 /* Generated-Info.plist */,
+				3C3A6BEC8373222FBB552688 /* RSSIClient.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		645064DB57C4C2D3E6597239 = {
+			isa = PBXGroup;
+			children = (
+				302ED84183634404376902A2 /* Sources */,
+				E565A70C85C1BCCCBEE37297 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		E565A70C85C1BCCCBEE37297 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C72DD24503C847E2F8718F2D /* BLERangeTester.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B117C19D1C41403138987B07 /* BLERangeTester */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FAFDF2A68FAFC004056822D6 /* Build configuration list for PBXNativeTarget "BLERangeTester" */;
+			buildPhases = (
+				73533918996A2E0A053C7BBD /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BLERangeTester;
+			packageProductDependencies = (
+			);
+			productName = BLERangeTester;
+			productReference = C72DD24503C847E2F8718F2D /* BLERangeTester.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D62FC9CBE9FD958D1F9D8D24 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					B117C19D1C41403138987B07 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 30EC85D7F6CD4E5C25009326 /* Build configuration list for PBXProject "BLERangeTester" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 645064DB57C4C2D3E6597239;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = E565A70C85C1BCCCBEE37297 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B117C19D1C41403138987B07 /* BLERangeTester */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		73533918996A2E0A053C7BBD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				313A787B56F9D42E37814F79 /* AoAPlotView.swift in Sources */,
+				C60180E1F5C29B8A6F6325D4 /* BLEManager.swift in Sources */,
+				0FFD0B4B51FAE7675A9F5BE2 /* BLERangeTesterApp.swift in Sources */,
+				6831C1A091A7DF781965A91F /* ContentView.swift in Sources */,
+				019204C804D21991D0709462 /* RSSIClient.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		29C84681CBFBF82DA2185D6A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = B4HGCGTUZW;
+				INFOPLIST_FILE = "Sources/Generated-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "BLE Range";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Broadcasts a known BLE advertising packet so a paired laptop SDR can measure signal strength as you walk around.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Polls the paired laptop server (LAN or Tailscale) to display per-SDR RSSI.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.local.BLERangeTester;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		785D943C19044B17EFED1391 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		9461286692A3A5BE589A421D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		F053CA23157302C5AC975A64 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = B4HGCGTUZW;
+				INFOPLIST_FILE = "Sources/Generated-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "BLE Range";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Broadcasts a known BLE advertising packet so a paired laptop SDR can measure signal strength as you walk around.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Polls the paired laptop server (LAN or Tailscale) to display per-SDR RSSI.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.local.BLERangeTester;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		30EC85D7F6CD4E5C25009326 /* Build configuration list for PBXProject "BLERangeTester" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				785D943C19044B17EFED1391 /* Debug */,
+				9461286692A3A5BE589A421D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FAFDF2A68FAFC004056822D6 /* Build configuration list for PBXNativeTarget "BLERangeTester" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F053CA23157302C5AC975A64 /* Debug */,
+				29C84681CBFBF82DA2185D6A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = D62FC9CBE9FD958D1F9D8D24 /* Project object */;
+}

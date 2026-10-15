@@ -1,0 +1,52 @@
+name: BLERangeTester
+options:
+  bundleIdPrefix: app.local
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    GENERATE_INFOPLIST_FILE: YES
+    ENABLE_PREVIEWS: YES
+    TARGETED_DEVICE_FAMILY: "1,2"
+
+targets:
+  BLERangeTester:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.local.BLERangeTester
+        INFOPLIST_KEY_CFBundleDisplayName: "BLE Range"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        # Permissions / ATS — see Info.plist key reference for these names
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "Broadcasts a known BLE advertising packet so a paired laptop SDR can measure signal strength as you walk around."
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Polls the paired laptop server (LAN or Tailscale) to display per-SDR RSSI."
+    info:
+      path: Sources/Generated-Info.plist
+      properties:
+        # ATS — allow plain HTTP.
+        #
+        # Why NOT use NSAllowsLocalNetworking: Apple's ATS only treats
+        # RFC1918 ranges + .local as "local". Tailscale's CGNAT range
+        # (100.64.0.0/10) is NOT covered, so requests to 100.x.y.z fail
+        # with NSURLErrorAppTransportSecurity (-1022).
+        #
+        # Worse, per Apple docs: when NSAllowsLocalNetworking=true is
+        # present, NSAllowsArbitraryLoads is IGNORED. So setting both is
+        # equivalent to setting only NSAllowsLocalNetworking — Tailscale
+        # still blocked. The fix is NSAllowsArbitraryLoads=true alone.
+        #
+        # The wireguard tunnel Tailscale establishes is itself encrypted
+        # end-to-end, so http inside the mesh is private.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true

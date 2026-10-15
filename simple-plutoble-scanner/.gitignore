@@ -8,6 +8,12 @@ ble_dual_capture*.py
 ble_epy_block_*.py
 ble_blade_*_decoder.py
 ble_pluto_*_decoder.py
+ble_aoa.py
+ble_aoa_*_decoder.py
+# NOTE: ble_aoa_decoder.py (hand-written source) is NOT matched above — tracked.
+
+# Per-deployment AoA calibration (inter-channel phase offset), like the db
+aoa_cal.json
 
 # Compiled Swift advertiser + macOS app bundle
 ble_advertise
@@ -25,3 +31,9 @@ __pycache__/
 
 # Misc
 *.log
+
+# Local terminal sessions and Xcode user state
+screenlog.*
+.DS_Store
+xcuserdata/
+*.xcuserstate
