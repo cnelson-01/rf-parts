@@ -1,0 +1,10 @@
+build/
+*.cs16
+*.pcap
+*.pcapng
+*.db
+*.db-shm
+*.db-wal
+logs/
+__pycache__/
+captures/
