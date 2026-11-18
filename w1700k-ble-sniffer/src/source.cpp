@@ -117,8 +117,15 @@ public:
 		s.svc_overruns = load(&h_->overruns);
 		s.svc_events = load(&h_->events);
 		s.svc_socket_drops = load(&h_->socket_drops);
-		if (in_run_)
+		if (in_run_) {
 			s.age_s = realtime_now() - (t_wall0_ + double(delivered_.load()) / rate_);
+			// The lag as of now, not as of our last read(): a reader stalled downstream (blocked
+			// handing blocks on) does not call read(), but its lag still grows.
+			uint64_t run, newest;
+			w1700k_stream_position(h_, &run, &newest);
+			if (run == pub_run_ && newest > pub_next_)
+				s.lag_s = std::max(s.lag_s, double(newest - pub_next_) * kSlice / rate_);
+		}
 		return s;
 	}
 
@@ -244,6 +251,7 @@ public:
 				st_.lost += lost;
 				st_.events += events;
 				st_.slices += slices;
+				pub_next_ = next_;
 			}
 			if (n) {
 				delivered_ += n;
@@ -302,6 +310,18 @@ private:
 			t0 = last_any - double(ahead) * slice_s + realtime_offset(clk);
 		else
 			t0 = double(load(&h_->run_started_ns)) * 1e-9 + double(next_) * slice_s + realtime_offset(clk);
+		// Sanity check against the wall clock: the newest published slot of a live stream is at most
+		// a ring's worth old. (After the stream service restarted a run, run_started_ns could still
+		// describe the previous run: timestamps then came out ~an hour early.)
+		{
+			const double now = realtime_now();
+			const double t_newest = t0 + (double(newest) - double(next_)) * slice_s;
+			if (std::fabs(t_newest - now) > 2.0) {
+				std::fprintf(stderr, "w1700k-ble: run %llu: the stream's clock anchor is %.1f s off: using "
+						     "the wall clock\n", (unsigned long long)run, t_newest - now);
+				t0 = now - (double(newest) - double(next_)) * slice_s;
+			}
+		}
 		{
 			std::lock_guard<std::mutex> lock(mu_);
 			t_wall0_ = t0;
@@ -310,6 +330,8 @@ private:
 				st_.skipped_slots += next_; // new-run prefix skipped when attaching live
 			st_.service_run = run;
 			st_.lag_s = 0;
+			pub_run_ = run_;
+			pub_next_ = next_;
 		}
 		ReadResult r;
 		r.new_run = true;
@@ -336,6 +358,7 @@ private:
 	{
 		std::lock_guard<std::mutex> lock(mu_);
 		st_.samples += n;
+		pub_next_ = next_;
 	}
 
 	bool reopen()
@@ -375,6 +398,7 @@ private:
 	uint64_t run_ = 0, next_ = 0, observed_newest_ = 0, tail_end_ = 0;
 	bool draining_ = false;
 	double t_wall0_ = 0;		// mu_
+	uint64_t pub_run_ = 0, pub_next_ = 0;	// mu_: run_ / next_ for stats()
 	std::atomic<uint64_t> delivered_{0};
 	std::vector<int16_t> left_;
 	size_t left_off_ = 0, left_n_ = 0;

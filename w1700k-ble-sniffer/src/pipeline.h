@@ -12,10 +12,17 @@
 //   G detector threads (channels split G ways; each walks the blocks in order) ─ streaming burst
 //   │   detection + demod per channel: a burst crossing a block edge is simply continued, so
 //   │   every burst is found exactly once; the noise floor tracks across blocks
-//   ▼
+//   ▼   (at most 8 blocks ahead of the main thread)
 //   main thread ─ merges the detectors' bursts by (run, sample_index) up to their watermarks
 //                 (time order is exact, the window is ~ one block + the longest burst),
-//                 LinkLayer, JSON lines on stdout, pcap, STATS on stderr
+//                 LinkLayer, JSON lines on stdout (one write per merged batch), pcap
+//   STATS thread ─ STATS on stderr every --stats seconds, from the main thread's counters as of
+//                 its last merged block (so a stdout consumer that stops reading does not silence
+//                 it: stdout_blocked_ms says for how long)
+//
+// Every buffer between the stages is bounded: a main thread blocked on stdout stalls the
+// detectors, the workers, then the source; a live source then falls behind the stream and
+// resynchronises (counted: resyncs, skipped_slots) instead of the process growing.
 //
 // Discontinuities (new run from the source) end the run's last block early; detectors flush
 // bursts in progress and restart (keeping the noise floor).
@@ -43,6 +50,7 @@ struct PipelineConfig {
 	double duration_s = 0;		// 0: until the end / a signal. Live: wall clock; file: stream time
 	double stats_s = 0;		// 0: no STATS lines
 	bool emit_bad_crc = false;
+	bool classic = false;	// also observe BR/EDR access codes on all 79 RF channels
 	std::string pcap_path;
 	bool drop_wideband = false;	// drop bursts of broadband events (>= 10 channels within 4 us)
 	bool dump_bursts = false;	// print bursts (JSON, bits as 0/1 strings) instead of packets

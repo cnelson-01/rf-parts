@@ -19,7 +19,9 @@ the Core spec's register form (adv init 555555), and the Pluto decoder's integer
 bit-reversal of that (verified on its rows), so rev24() keeps old and new rows comparable. The
 new crc_init column keeps the spec form.
 
-Only CRC-good packets are stored unless --all. Malformed lines are counted and skipped.
+Only CRC-good packets are stored unless --all; REPLY_UNDECODED records (the sniffer's note that a
+reply slot after an advert held energy it could not decode, FOLLOW.md 1) are always stored, but
+make no ble_devices row and do not count in ble_activity. Malformed lines are counted and skipped.
 Standard library only; runs on /usr/bin/python3 (3.9) and Homebrew python (3.14).
 """
 import argparse
@@ -94,6 +96,8 @@ EXTRA_COLUMNS = [
     ("ctrl_opcode", "TEXT"),
     ("pdu", "BLOB"),                  # dewhitened header + payload (no CRC)
     ("extra", "TEXT"),                # JSON of any other fields (e.g. "connect")
+    ("rx_addr", "TEXT"),              # receiver: AdvA of SCAN_REQ / CONNECT_IND, TargetA, ... (JSON rx_addr)
+    ("direction", "INTEGER"),         # data packets: 0 central->peripheral, 1 back (JSON dir)
 ]
 
 SINK_SCHEMA = """
@@ -169,7 +173,7 @@ INSERT_COLUMNS = [
     "crc_calc", "rssi_dbfs", "name", "apple", "ibeacon_uuid", "adv_data", "raw", "phase_rad",
     "aoa_deg", "kind", "aa", "rf_channel", "phy", "crc_init", "crc_init_confirmed", "cfo_khz",
     "noise_dbfs", "t_stream", "stream_run", "rx_add", "company_id", "llid", "nesn", "sn", "md",
-    "ctrl_opcode", "pdu", "extra",
+    "ctrl_opcode", "pdu", "extra", "rx_addr", "direction",
 ]
 INSERT_SQL = "INSERT INTO ble_packets (%s) VALUES (%s)" % (
     ", ".join(INSERT_COLUMNS), ", ".join("?" * len(INSERT_COLUMNS)))
@@ -180,8 +184,39 @@ CONSUMED_KEYS = {
     "crc_ok", "crc_init", "crc_init_confirmed", "crc_rx", "crc_calc", "pdu_type", "addr",
     "tx_add", "rx_add", "pdu_len", "rssi_dbfs", "noise_dbfs", "cfo_khz", "cfo_hz", "name",
     "apple", "ibeacon_uuid", "company_id", "adv_data", "pdu", "air", "llid", "nesn", "sn", "md",
-    "ctrl_opcode", "phase_rad", "aoa_deg",
+    "ctrl_opcode", "phase_rad", "aoa_deg", "rx_addr", "dir",
 }
+
+
+
+# Classic access-code observations are separate from CRC-checked BLE packets.
+CLASSIC_SCHEMA = """
+CREATE TABLE IF NOT EXISTS classic_packets (
+ id INTEGER PRIMARY KEY, ts REAL NOT NULL, sdr TEXT NOT NULL, lap TEXT NOT NULL,
+ channel INTEGER NOT NULL, rssi_dbfs REAL, cfo_khz REAL, header_fec_errors INTEGER, raw TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_classic_ts ON classic_packets(ts);
+CREATE TABLE IF NOT EXISTS classic_streams (
+ sdr TEXT NOT NULL, lap TEXT NOT NULL, first_seen REAL NOT NULL, last_seen REAL NOT NULL,
+ packets INTEGER NOT NULL, rssi_last REAL, PRIMARY KEY(sdr, lap)
+);
+CREATE INDEX IF NOT EXISTS idx_classic_last ON classic_streams(last_seen);
+CREATE TABLE IF NOT EXISTS classic_activity (
+ sec INTEGER NOT NULL, sdr TEXT NOT NULL, lap TEXT NOT NULL, channel INTEGER NOT NULL,
+ packets INTEGER NOT NULL, PRIMARY KEY(sec, sdr, lap, channel)
+);
+"""
+
+def parse_classic(obj, sdr):
+    lap = obj.get("lap", "")
+    if not isinstance(lap, str) or len(lap) != 6 or any(c not in "0123456789abcdefABCDEF" for c in lap):
+        raise ValueError("invalid Classic LAP")
+    ts, ch = as_float(obj.get("ts")), as_int(obj.get("classic_channel"))
+    if ts is None or ts <= 0 or ch is None or not 0 <= ch <= 78:
+        raise ValueError("invalid Classic time/channel")
+    return (ts, sdr or as_text(obj.get("sdr")) or "w1700k", lap.lower(), ch,
+            as_float(obj.get("rssi_dbfs")), as_float(obj.get("cfo_khz")),
+            as_int(obj.get("header_fec_errors")), json.dumps(obj, separators=(",", ":")))
 
 
 def migrate(conn):
@@ -202,6 +237,7 @@ def open_db(path):
     conn.executescript(SCHEMA)
     migrate(conn)
     conn.executescript(SINK_SCHEMA)
+    conn.executescript(CLASSIC_SCHEMA)
     return conn
 
 
@@ -354,12 +390,14 @@ def as_addr(v):
 # ---- packet -> row ---------------------------------------------------------------------------
 
 DATA_TYPES_BY_LLID = {1: "LL_DATA", 2: "LL_DATA_START", 3: "LL_CONTROL"}
+REPLY_UNDECODED = "REPLY_UNDECODED"
 
 
 class Packet(object):
     __slots__ = ("row", "ts", "sdr", "channel", "kind", "crc_ok", "addr", "aa", "crc_init",
                  "confirmed", "rssi", "empty", "connect", "pdu_type", "name", "apple",
-                 "company_id", "ibeacon", "tx_add", "pdu_len", "adv_data_hex", "bad_fields")
+                 "company_id", "ibeacon", "tx_add", "pdu_len", "adv_data_hex", "bad_fields",
+                 "reply")
 
 
 def parse_packet(obj, sdr_override=None, now=None):
@@ -426,12 +464,17 @@ def parse_packet(obj, sdr_override=None, now=None):
         tx_add = None
     if rx_add is not None and rx_add < 0:
         rx_add = None
-    nesn, sn, md =get("nesn", as_int), get("sn", as_int), get("md", as_int)
+    nesn, sn, md = get("nesn", as_int), get("sn", as_int), get("md", as_int)
     if llid is not None and llid < 0:
         llid = None
     nesn = None if nesn is not None and nesn < 0 else nesn
     sn = None if sn is not None and sn < 0 else sn
     md = None if md is not None and md < 0 else md
+    rx_addr = get("rx_addr", as_addr)
+    direction = get("dir", as_int)
+    if direction is not None and direction not in (0, 1):
+        bad[0] += 1
+        direction = None
 
     extra = {k: v for k, v in obj.items() if k not in CONSUMED_KEYS}
     connect = obj.get("connect")
@@ -448,7 +491,7 @@ def parse_packet(obj, sdr_override=None, now=None):
         kind, aa, rf, as_text(obj.get("phy"), 16), crc_init,
         None if confirmed is None else int(confirmed), cfo_khz, get("noise_dbfs", as_float),
         get("t_stream", as_float), get("run", as_int), rx_add, company_id, llid, nesn, sn, md,
-        as_text(obj.get("ctrl_opcode"), 64), get("pdu", as_bytes), extra_json,
+        as_text(obj.get("ctrl_opcode"), 64), get("pdu", as_bytes), extra_json, rx_addr, direction,
     )
     p.ts, p.sdr, p.channel, p.kind, p.crc_ok = ts, sdr, channel, kind, crc_ok
     p.addr, p.aa, p.crc_init, p.confirmed, p.rssi = addr, aa, crc_init, confirmed, rssi
@@ -457,6 +500,7 @@ def parse_packet(obj, sdr_override=None, now=None):
     p.company_id, p.ibeacon, p.tx_add, p.pdu_len = company_id, ibeacon, tx_add, pdu_len
     p.adv_data_hex = adv_data.hex() if adv_data is not None else ""
     p.bad_fields = bad[0]
+    p.reply = pdu_type == REPLY_UNDECODED
     return p
 
 
@@ -499,6 +543,7 @@ class Sink(object):
         self.db_path = args.db
         self.conn = open_db(self.db_path)
         self.rows = []
+        self.classic_rows = []
         self.devices = {}          # (sdr, addr) -> dict, this session's (seeded from the db)
         self.dirty_devices = set()
         self.conn_params = {}      # (aa, crc_init) -> (sdr, ts, connect dict)
@@ -511,7 +556,8 @@ class Sink(object):
         self.stats_offset = 0
         self.stats_partial = b""
         self.counts = dict(lines=0, packets=0, stored=0, adv=0, data=0, bad_crc=0, dropped_bad=0,
-                           skipped_empty=0, malformed=0, bad_fields=0, stats_lines=0, connects=0)
+                           skipped_empty=0, malformed=0, bad_fields=0, stats_lines=0, connects=0, classic=0,
+                           replies=0)
         self.window = dict(self.counts)
         self.window_t = time.monotonic()
         self.malformed_shown = 0
@@ -528,7 +574,7 @@ class Sink(object):
             return
         self.counts["lines"] += 1
         if line.startswith(b"STATS "):
-            self._stats_line(line[6:])
+            self._stats_line(line[6:], now)
             return
         try:
             obj = json.loads(line)
@@ -538,6 +584,13 @@ class Sink(object):
             except ValueError:
                 self._malformed(line, "not JSON")
                 return
+        if isinstance(obj, dict) and obj.get("kind") == "classic":
+            try:
+                self.classic_rows.append(parse_classic(obj, self.args.sdr))
+                self.counts["classic"] += 1
+            except (ValueError, TypeError) as e:
+                self._malformed(line, str(e))
+            return
         try:
             p = parse_packet(obj, self.args.sdr, now)
         except ValueError as e:
@@ -558,6 +611,14 @@ class Sink(object):
         c = self.counts
         c["packets"] += 1
         c["bad_fields"] += p.bad_fields
+        if p.reply:
+            # a reply slot with energy the sniffer could not decode: kept even without --all (it
+            # is how a lost CONNECT_IND shows up), but it is not a packet from anyone: no device
+            # row, no connection, not in the per-channel activity counts
+            c["replies"] += 1
+            self.rows.append(p.row)
+            c["stored"] += 1
+            return
         key = (int(p.ts), p.sdr, p.channel)
         act = self.activity.get(key)
         if act is None:
@@ -695,14 +756,16 @@ class Sink(object):
 
     # -- the sniffer's STATS lines ---------------------------------------------------------
 
-    def _stats_line(self, text):
+    def _stats_line(self, text, now=None):
+        """now: when the line was written (default: the time it is read; a tool replaying a
+        capture passes the capture's time)."""
         self.counts["stats_lines"] += 1
         try:
             obj = json.loads(text)
         except ValueError:
             return
         self.last_stats = (time.time(), obj)
-        self.stats_rows.append((time.time(), self.args.sdr or "w1700k",
+        self.stats_rows.append((time.time() if now is None else now, self.args.sdr or "w1700k",
                                 json.dumps(obj, separators=(",", ":"))))
 
     def poll_stats_file(self):
@@ -740,7 +803,7 @@ class Sink(object):
     # -- writing ---------------------------------------------------------------------------
 
     def flush(self):
-        if not (self.rows or self.dirty_devices or self.conn_params or self.conn_delta
+        if not (self.rows or self.classic_rows or self.dirty_devices or self.conn_params or self.conn_delta
                 or self.activity or self.stats_rows):
             return
         self.in_flush = True
@@ -764,6 +827,28 @@ class Sink(object):
                            % len(self.rows))
             return
         try:
+            if self.classic_rows:
+                conn.executemany("INSERT INTO classic_packets(ts,sdr,lap,channel,rssi_dbfs,cfo_khz,header_fec_errors,raw) VALUES(?,?,?,?,?,?,?,?)", self.classic_rows)
+                streams, activity = {}, {}
+                for ts, sdr, lap, ch, rssi, cfo, fec, raw in self.classic_rows:
+                    key = (sdr, lap)
+                    if key not in streams:
+                        streams[key] = [ts, ts, 0, rssi]
+                    item = streams[key]
+                    item[0] = min(item[0], ts)
+                    if ts >= item[1]: item[1], item[3] = ts, rssi
+                    item[2] += 1
+                    key = (int(ts), sdr, lap, ch)
+                    activity[key] = activity.get(key, 0) + 1
+                conn.executemany("""INSERT INTO classic_streams VALUES(?,?,?,?,?,?)
+                    ON CONFLICT(sdr,lap) DO UPDATE SET
+                    first_seen=min(first_seen,excluded.first_seen),
+                    rssi_last=CASE WHEN excluded.last_seen>=last_seen THEN excluded.rssi_last ELSE rssi_last END,
+                    last_seen=max(last_seen,excluded.last_seen), packets=packets+excluded.packets""",
+                    [(sdr,lap)+tuple(v) for (sdr,lap),v in streams.items()])
+                conn.executemany("""INSERT INTO classic_activity VALUES(?,?,?,?,?)
+                    ON CONFLICT(sec,sdr,lap,channel) DO UPDATE SET packets=packets+excluded.packets""",
+                    [key+(n,) for key,n in activity.items()])
             if self.rows:
                 conn.executemany(INSERT_SQL, self.rows)
             if self.dirty_devices:
@@ -839,6 +924,7 @@ class Sink(object):
                 pass
             raise
         self.rows = []
+        self.classic_rows = []
         self.dirty_devices = set()
         self.conn_params = {}
         self.conn_delta = {}
@@ -863,8 +949,12 @@ class Sink(object):
         active = sum(1 for v in self.devices.values() if (v["last_seen"] or 0) >= cutoff)
         text = ("[sink] %4.0fs: %d pkts (adv %.1f/s, data %.1f/s)" %
                 (dt, d["packets"], d["adv"] / rate_dt, d["data"] / rate_dt))
+        if d["classic"]:
+            text += ", Classic %.1f/s" % (d["classic"] / rate_dt)
         if d["bad_crc"]:
             text += ", bad CRC %d" % d["bad_crc"]
+        if d["replies"]:
+            text += ", undecoded replies %d" % d["replies"]
         if d["malformed"]:
             text += ", malformed %d" % d["malformed"]
         text += " | %d stored, %d devices (60 s), %d connections" % (
@@ -959,7 +1049,7 @@ def run(args, infd=None):
             if now - last_stats >= 1.0:
                 last_stats = now
                 sink.poll_stats_file()
-            if (now - last_flush >= args.commit_interval or len(sink.rows) >= args.batch):
+            if (now - last_flush >= args.commit_interval or len(sink.rows) + len(sink.classic_rows) >= args.batch):
                 sink.flush()
                 last_flush = now
             if args.summary_every > 0 and not args.quiet and now - last_summary >= args.summary_every:
@@ -995,9 +1085,9 @@ def run(args, infd=None):
         sink.summary()
         c = sink.counts
         sys.stderr.write("[sink] done: %d lines, %d packets, %d stored, %d CRC-failed (%d dropped), "
-                         "%d malformed, %d connections\n" % (
+                         "%d undecoded replies, %d malformed, %d connections\n" % (
                              c["lines"], c["packets"], c["stored"], c["bad_crc"], c["dropped_bad"],
-                             c["malformed"], len(sink.known_conns)))
+                             c["replies"], c["malformed"], len(sink.known_conns)))
     sink.conn.close()
     return sink
 

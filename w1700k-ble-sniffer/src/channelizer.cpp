@@ -59,25 +59,27 @@ std::vector<float> design_lowpass(int n, double fc, double atten_db)
 Channelizer::Channelizer(const ChannelizerConfig &cfg)
 	: fs_(cfg.sample_rate), lo_(cfg.lo_hz), dc_block_(cfg.dc_block), plan_(nullptr), batch_(128)
 {
-	double m = fs_ / kBinSpacing;
-	if (fs_ <= 0 || std::fabs(m - std::round(m)) > 1e-9 || (long long)std::llround(m) % 2)
+	spacing_ = cfg.classic_grid ? 1e6 : kBinSpacing;
+	channel_count_ = cfg.classic_grid ? 79 : kNumRfChannels;
+	double m = fs_ / spacing_;
+	if (fs_ <= 0 || std::fabs(m - std::round(m)) > 1e-9 || std::llround(fs_ / 1e6) % 4)
 		throw std::runtime_error("sample rate must be a positive multiple of 4 MHz");
 	M_ = int(std::llround(m));
-	D_ = M_ / 2;
-	K_ = std::max(4, cfg.taps_per_branch);
+	D_ = int(std::llround(fs_ / kChannelRate));
+	K_ = std::max(4, cfg.classic_grid ? cfg.taps_per_branch / 2 : cfg.taps_per_branch);
 	L_ = K_ * M_;
 
-	// NCO: the smallest shift that puts 2402 MHz (and so every channel) on the 2 MHz grid.
-	// Of the shifts that do (any multiple of 2 MHz apart), take the one that centres the BLE band
+	// NCO: the smallest shift that puts 2402 MHz (and so every channel) on the selected bin grid.
+	// Of the shifts that do (any multiple of the bin spacing apart), take the one that centres the BLE band
 	// best, then the smallest.
-	double off = std::fmod(2402e6 - lo_, kBinSpacing);
+	double off = std::fmod(2402e6 - lo_, spacing_);
 	if (off < 0)
-		off += kBinSpacing;
+		off += spacing_;
 	shift_ = -off;
 	double best = 1e300;
 	for (int n = -2; n <= 2; n++) {
-		double s = -off + n * kBinSpacing;
-		double edge = std::max(std::fabs(rf_channel_hz(0) - lo_ + s), std::fabs(rf_channel_hz(39) - lo_ + s));
+		double s = -off + n * spacing_;
+		double edge = std::max(std::fabs(2402e6 - lo_ + s), std::fabs(2480e6 - lo_ + s));
 		double score = edge * 1e3 + std::fabs(s);
 		if (score < best - 1e-3) {
 			best = score;
@@ -93,19 +95,19 @@ Channelizer::Channelizer(const ChannelizerConfig &cfg)
 
 	std::vector<int> want = cfg.rf_channels;
 	if (want.empty())
-		for (int rf = 0; rf < kNumRfChannels; rf++)
+		for (int rf = 0; rf < channel_count_; rf++)
 			want.push_back(rf);
 	std::vector<int> used(M_, -1);
 	for (int rf : want) {
-		if (rf < 0 || rf >= kNumRfChannels)
+		if (rf < 0 || rf >= channel_count_)
 			continue;
 		double bb = baseband_hz(rf);
 		if (std::fabs(bb) > fs_ / 2) {
 			std::fprintf(stderr, "w1700k-ble: RF channel %d (%.0f MHz) is outside the band, skipped\n",
-				     rf, rf_channel_hz(rf) / 1e6);
+				     rf, (2402e6 + spacing_ * rf) / 1e6);
 			continue;
 		}
-		long long j = std::llround(bb / kBinSpacing);
+		long long j = std::llround(bb / spacing_);
 		int k = int(((j % M_) + M_) % M_);
 		if (used[k] >= 0) {
 			std::fprintf(stderr, "w1700k-ble: RF channel %d aliases onto RF channel %d, skipped\n", rf,
@@ -117,7 +119,7 @@ Channelizer::Channelizer(const ChannelizerConfig &cfg)
 		bin_.push_back(k);
 	}
 	if (rf_.empty())
-		throw std::runtime_error("no BLE channel inside the band");
+		throw std::runtime_error("no Bluetooth channel inside the band");
 
 	std::lock_guard<std::mutex> lock(fftw_mutex);
 	float *a = fftwf_alloc_real(2 * size_t(M_) * batch_);
@@ -138,7 +140,7 @@ Channelizer::~Channelizer()
 		fftwf_destroy_plan((fftwf_plan)plan_);
 }
 
-double Channelizer::baseband_hz(int rf) const { return rf_channel_hz(rf) - lo_ + shift_; }
+double Channelizer::baseband_hz(int rf) const { return (2402e6 + spacing_ * rf) - lo_ + shift_; }
 
 std::string Channelizer::describe() const
 {
@@ -275,7 +277,12 @@ void Channelizer::Worker::process(const int16_t *in, uint64_t frame0, int nframe
 		for (int c = 0; c < nch; c++) {
 			const int k = c_.bin_[c];
 			cf *o = out[c] + j0;
-			if (k & 1) {
+			if (c_.M_ / D == 4) {
+				// Four-times oversampled bank: derotate each bin by exp(-j*pi*k*m/2).
+				static const cf rotations[] = {{1,0}, {0,-1}, {-1,0}, {0,1}};
+				for (int jj = 0; jj < nb; jj++)
+					o[jj] = F[size_t(jj) * M + k] * rotations[(k * (frame0 + j0 + jj)) & 3];
+			} else if (k & 1) {
 				// e^{-j pi k m}: odd bins alternate sign with the absolute frame index.
 				float s = ((frame0 + uint64_t(j0)) & 1) ? -1.f : 1.f;
 				for (int jj = 0; jj < nb; jj++, s = -s)

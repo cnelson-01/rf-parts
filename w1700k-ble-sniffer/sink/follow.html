@@ -1,0 +1,2249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:,">
+<title>Follow · W1700K Bluetooth</title>
+<style>
+:root {
+  --bg: #07090c; --panel: #12161b; --panel-2: #181d24; --line: #262e38;
+  --text: #d9dfe7; --dim: #8994a1; --accent: #3d9bff; --good: #3ecf8e;
+  --warn: #f5b041; --bad: #ff6b6b; --c2p: #3ecf8e; --p2c: #c792ea;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { padding: 0 0 24px; -webkit-tap-highlight-color: transparent; }
+button, input, select { font: inherit; color: inherit; }
+button, select, input[type=search], input[type=text], input[type=datetime-local] {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px;
+}
+button { cursor: pointer; white-space: nowrap; }
+button:hover { border-color: #3a4552; }
+button:disabled { opacity: 0.45; cursor: default; }
+button.on { background: #173352; border-color: var(--accent); color: #cfe6ff; }
+button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+[hidden] { display: none !important; }
+a { color: var(--accent); }
+header {
+  position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 8px 16px; padding-top: max(8px, env(safe-area-inset-top));
+  background: rgba(18, 22, 27, 0.94); border-bottom: 1px solid var(--line); backdrop-filter: blur(6px);
+}
+header h1 { font-size: 14px; margin: 0 6px 0 0; font-weight: 650; letter-spacing: 0.02em; white-space: nowrap; }
+header h1 span { color: var(--accent); }
+nav { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+nav a { padding: 2px 10px; border-radius: 6px; color: var(--dim); text-decoration: none; font-weight: 600; font-size: 12.5px; white-space: nowrap; }
+nav a:hover { color: var(--text); }
+nav a.on { background: #173352; color: #cfe6ff; }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.pill { border: 1px solid var(--line); background: var(--panel-2); border-radius: 999px; padding: 2px 9px; color: var(--dim); white-space: nowrap; font-size: 12px; }
+.pill b { color: var(--text); font-weight: 600; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.pill.good { color: var(--good); border-color: #1f4d3a; }
+.pill.warn { color: var(--warn); border-color: #5a4518; }
+.pill.bad { color: var(--bad); border-color: #5a2323; }
+.pill.live::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--good); margin-right: 6px; vertical-align: 0; animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.tools { display: flex; gap: 6px; align-items: center; }
+
+/* address + window bars */
+.bars { max-width: 1500px; margin: 0 auto; padding: 10px 16px 0; display: grid; gap: 8px; }
+.addrbar { position: relative; display: flex; gap: 8px; align-items: flex-start; }
+.chips { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 5px; min-height: 40px;
+         background: var(--panel); border: 1px solid var(--line); border-radius: 10px; cursor: text; }
+.chips:focus-within { border-color: #35506e; }
+.chip { display: inline-flex; align-items: center; gap: 0; border: 1px solid var(--line); border-left: 3px solid var(--c, var(--accent));
+        background: var(--panel-2); border-radius: 7px; max-width: 100%; min-width: 0; }
+.chip > * { border: 0; background: none; padding: 3px 6px; border-radius: 0; }
+.chip .lbl { font-weight: 600; max-width: 14em; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.chip .lbl.none { color: var(--dim); font-weight: 400; font-style: italic; }
+.chip .ca { font-family: var(--mono); font-size: 12px; color: var(--dim); padding-left: 0; white-space: nowrap; }
+.chip button.ic { color: var(--dim); padding: 3px 7px; }
+.chip button.ic:hover { color: var(--text); background: #222a34; }
+.chip input.lblin { width: 9em; padding: 2px 6px; border: 1px solid var(--accent); border-radius: 5px; background: var(--bg); }
+#addin { flex: 1; min-width: 12em; border: 0; background: none; padding: 5px 6px; outline: none; }
+.sugg { position: absolute; left: 0; top: calc(100% + 4px); z-index: 30; width: min(560px, 100%); max-height: 340px; overflow-y: auto;
+        background: var(--panel-2); border: 1px solid #35506e; border-radius: 9px; box-shadow: 0 10px 30px rgba(0,0,0,.5); padding: 4px; }
+.sugg button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; width: 100%; text-align: left; border: 0; border-radius: 6px; background: none; padding: 6px 8px; }
+.sugg button.act, .sugg button:hover { background: #1d2a3a; }
+.sugg .sn { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.sugg .sa { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.sugg .sm { grid-column: 1 / -1; color: var(--dim); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
+.sugg .sx { padding: 8px; color: var(--dim); }
+.menu { position: relative; }
+.menu > summary { list-style: none; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; cursor: pointer; white-space: nowrap; user-select: none; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu[open] > summary { border-color: var(--accent); }
+.menu .mbody { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 240px; max-width: 86vw; background: var(--panel-2);
+               border: 1px solid #35506e; border-radius: 9px; box-shadow: 0 10px 30px rgba(0,0,0,.5); padding: 4px; display: grid; gap: 2px; }
+.menu .mbody a, .menu .mbody button { display: block; text-align: left; border: 0; background: none; border-radius: 6px; padding: 6px 9px; color: var(--text); text-decoration: none; white-space: normal; }
+.menu .mbody a:hover, .menu .mbody button:hover { background: #1d2a3a; }
+.menu .mbody .mnote { color: var(--dim); font-size: 11.5px; padding: 4px 9px; }
+.winbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--panel-2); }
+.seg button { border: 0; border-radius: 0; padding: 4px 10px; background: none; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: #173352; color: #cfe6ff; }
+.fixedform { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fixedform input { padding: 3px 6px; }
+.wininfo { color: var(--dim); font-size: 12px; flex: 1 1 260px; min-width: 0; }
+.wininfo b { color: var(--text); font-weight: 600; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.banner { max-width: 1500px; margin: 10px auto 0; padding: 0 16px; }
+.banner > div { padding: 9px 12px; border: 1px solid #5a2323; background: #1f1214; color: #ffb3b3; border-radius: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.banner > div.warn { border-color: #5a4518; background: #1d1810; color: var(--warn); }
+.banner .bt { flex: 1 1 300px; min-width: 0; overflow-wrap: anywhere; }
+
+main { display: grid; gap: 12px; padding: 12px 16px; grid-template-columns: minmax(0, 1fr); max-width: 1500px; margin: 0 auto; }
+@media (min-width: 1100px) { main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .wide { grid-column: 1 / -1; } }
+main.stale section:not(#intro) { opacity: 0.5; filter: grayscale(0.6); }
+/* the capture behind a live view has stopped: its verdicts are not current */
+main.capstale #funnels, main.capstale .oc { opacity: 0.55; filter: grayscale(0.7); }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+h2 { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--dim); margin: 0; flex: 1 1 auto; min-width: 0; }
+h2 .cnt { text-transform: none; letter-spacing: 0; font-weight: 500; }
+h3 { font-size: 12px; margin: 12px 0 6px; color: var(--text); font-weight: 600; }
+.note { color: var(--dim); font-size: 11.5px; }
+.empty { color: var(--dim); padding: 14px 4px; text-align: center; }
+.num, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.num { text-align: right; }
+.dim { color: var(--dim); }
+.legend { display: flex; gap: 10px; color: var(--dim); font-size: 11.5px; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+button.lnk { border: 0; background: none; padding: 0 2px; color: var(--accent); font-size: inherit; }
+button.lnk:hover { text-decoration: underline; }
+.tag { display: inline-block; font-size: 10.5px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
+.tag.good { color: var(--good); border-color: #1f4d3a; } .tag.warn { color: var(--warn); border-color: #5a4518; }
+.tag.bad { color: var(--bad); border-color: #5a2323; } .tag.acc { color: #9cc9ff; border-color: #24476d; }
+/* an address everywhere: user label (if any) + address, in the device's colour when followed */
+.ad { white-space: nowrap; }
+.ad.f { color: var(--text); }
+.ad.f::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--c); margin-right: 5px; vertical-align: 0; }
+.ad .al { font-weight: 600; }
+.ad .al:not(:last-child) { margin-right: 4px; }
+.ad .aa { font-family: var(--mono); font-size: 0.94em; }
+.ad .an { color: var(--dim); margin-left: 4px; display: inline-block; max-width: 12em; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+button.ad.o { border: 0; background: none; padding: 0; color: var(--text); text-decoration: underline dotted var(--dim); text-underline-offset: 3px; }
+button.ad.o:hover { color: var(--accent); }
+button.fol { padding: 0 7px; font-size: 11.5px; color: var(--accent); }
+
+/* intro */
+#intro p { margin: 6px 0; max-width: 900px; }
+#intro ol { margin: 6px 0 10px; padding-left: 20px; max-width: 900px; }
+#intro .recent { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+/* diagnosis */
+.funnels { display: grid; gap: 10px; }
+.fun { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; background: #0f1317; }
+.fun.hasgap { border-color: #5a2323; }
+.fhead { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; margin-bottom: 7px; }
+.fhead .pair { font-weight: 600; }
+.vd { font-weight: 600; }
+.vd.bad { color: var(--bad); } .vd.warn { color: var(--warn); } .vd.good { color: var(--good); } .vd.acc { color: #9cc9ff; }
+ol.steps { list-style: none; margin: 0; padding: 0; display: flex; align-items: stretch; gap: 0; overflow-x: auto; scrollbar-width: thin; }
+ol.steps li.st { flex: 1 1 0; min-width: 92px; border: 1px solid #2c3540; border-radius: 8px; padding: 6px 8px; background: var(--panel-2); position: relative; }
+ol.steps li.st b { display: block; font-family: var(--mono); font-size: 19px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+ol.steps li.st span { display: block; font-size: 11.5px; color: var(--dim); line-height: 1.25; }
+ol.steps li.st.ok { border-color: #1f4d3a; } ol.steps li.st.ok b { color: var(--good); }
+ol.steps li.st.opt { border-style: dashed; flex-grow: 0.75; }
+ol.steps li.st.opt b { font-size: 16px; color: var(--text); }
+ol.steps li.st.zero b, ol.steps li.st.na b { color: var(--dim); }
+ol.steps li.st.skip { border-color: #5a4518; border-style: dashed; } ol.steps li.st.skip b { color: var(--warn); }
+ol.steps li.st.hint { border-color: var(--warn); background: #1d1810; } ol.steps li.st.hint b { color: var(--warn); }
+ol.steps li.st.gap { border: 2px solid var(--bad); background: #2a1215; box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.15); }
+ol.steps li.st.gap b { color: var(--bad); font-size: 22px; }
+ol.steps li.st.gap span { color: #ffc2c2; }
+ol.steps li.st.gap em { position: absolute; top: 5px; right: 6px; font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: .08em; background: var(--bad); color: #1a0a0a; border-radius: 4px; padding: 0 5px; }
+ol.steps li.st.after { opacity: 0.38; }
+ol.steps li.cn { flex: 0 0 auto; align-self: center; padding: 0 3px; color: #4b5663; font-size: 15px; min-width: 14px; text-align: center; }
+ol.steps li.st small.drop { font-size: 11px; font-weight: 600; color: var(--warn); margin-left: 7px; vertical-align: 3px; font-family: var(--mono); }
+ol.steps li.st.lost { border-color: #5a4518; } ol.steps li.st.lost b { color: var(--warn); }
+.fnote { margin-top: 7px; font-size: 12px; color: #ffc2c2; }
+.fnote.w { color: var(--warn); } .fnote.d { color: var(--dim); }
+details.more > summary { cursor: pointer; color: var(--dim); font-size: 12px; padding: 4px 0; }
+.funline { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 3px 0; border-top: 1px solid #1a2028; font-size: 12px; }
+.dgrid { display: grid; gap: 12px; margin-top: 12px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1100px) { .dgrid { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); } }
+ul.finds { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+li.fd { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 6px; padding: 7px 9px; border: 1px solid var(--line); border-left: 3px solid var(--dim); border-radius: 7px; background: #0f1317; }
+li.fd.bad { border-left-color: var(--bad); } li.fd.warn { border-left-color: var(--warn); } li.fd.info { border-left-color: var(--accent); }
+li.fd .lv { font-weight: 700; text-align: center; }
+li.fd.bad .lv { color: var(--bad); } li.fd.warn .lv { color: var(--warn); } li.fd.info .lv { color: var(--accent); }
+li.fd .ft { overflow-wrap: anywhere; }
+li.fd .fm { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; font-size: 11.5px; color: var(--dim); align-items: center; }
+li.fd code { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+details.grp > summary { cursor: pointer; color: var(--dim); font-size: 12px; padding: 2px 0 2px 26px; }
+details.grp ul.finds { margin-top: 6px; }
+.devs { display: grid; gap: 6px; }
+.dev { border: 1px solid var(--line); border-left: 3px solid var(--c); border-radius: 7px; padding: 6px 9px; background: #0f1317; }
+.dev .dn { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.dev .dn b { font-weight: 600; }
+.dev .dm { color: var(--dim); font-size: 12px; margin-top: 2px; }
+.dev.nh { border-left-style: dashed; }
+.cap { margin-top: 8px; font-size: 12px; color: var(--dim); display: grid; gap: 4px; }
+.cap b { color: var(--text); font-weight: 600; font-family: var(--mono); }
+.caps { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* timeline */
+.tlwrap { position: relative; user-select: none; -webkit-user-select: none; }
+#tl { display: block; width: 100%; touch-action: pan-y; cursor: grab; }
+#tl.drag { cursor: grabbing; }
+.tip { position: absolute; z-index: 10; pointer-events: none; max-width: min(420px, 92%); background: rgba(12, 15, 19, 0.97); border: 1px solid #35506e;
+       border-radius: 7px; padding: 6px 8px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+.tip .tt { font-weight: 600; } .tip .tm { color: var(--dim); font-family: var(--mono); font-size: 11.5px; }
+.tip div { overflow-wrap: anywhere; }
+.tlbtns { display: inline-flex; gap: 4px; }
+.tlbtns button { padding: 2px 9px; }
+.tlnote { color: var(--dim); font-size: 11.5px; margin-top: 4px; min-height: 16px; }
+
+/* tables */
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.scroll.tall { max-height: 420px; overflow-y: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; color: var(--dim); padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; z-index: 1; }
+td { padding: 4px 8px; border-bottom: 1px solid #1a2028; white-space: nowrap; vertical-align: top; }
+td.wrap { white-space: normal; min-width: 180px; }
+tr[data-gid], tr[data-cand] { cursor: pointer; }
+tr:hover td { background: #151a21; }
+tr.selected td { background: #302718; }
+tr.selected td:first-child { box-shadow: inset 3px 0 var(--warn); }
+.attx { margin-top: 8px; border: 1px solid #5a4518; border-left: 3px solid var(--warn); border-radius: 8px; padding: 8px 10px; background: #0f1317; overflow-wrap: anywhere; }
+.attx .axh { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin-bottom: 6px; }
+.attx .axh button { margin-left: auto; padding: 0 8px; }
+.oc { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 0 7px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+.oc.good { color: var(--good); border-color: #1f4d3a; background: #0f2219; }
+.oc.warn { color: var(--warn); border-color: #5a4518; background: #1d1810; }
+.oc.bad { color: var(--bad); border-color: #5a2323; background: #221214; }
+.oc.acc { color: #9cc9ff; border-color: #24476d; background: #0f1b2a; }
+.ctl { margin: 6px 0 0; display: grid; grid-template-columns: auto auto auto minmax(0, 1fr); gap: 1px 10px; font-size: 12px; }
+.ctl > span { white-space: nowrap; } .ctl > span:nth-child(4n) { white-space: normal; }
+.ctl > button { justify-self: start; text-align: left; padding: 0; }
+.score { display: inline-block; width: 46px; height: 7px; background: #1d242d; border-radius: 4px; vertical-align: 1px; margin-right: 5px; overflow: hidden; }
+.score i { display: block; height: 100%; background: var(--warn); }
+.slot { margin: 4px 0 10px; font-size: 12.5px; }
+
+/* packets */
+.pkhead { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+.tfil { display: flex; flex-wrap: wrap; gap: 4px; }
+.tfil button { padding: 2px 8px; font-size: 12px; color: var(--dim); }
+.tfil button.on { color: #cfe6ff; }
+.tfil button i { font-style: normal; font-family: var(--mono); font-size: 11px; opacity: 0.8; margin-left: 3px; }
+#pq { width: 220px; max-width: 100%; }
+.scopes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.scopes:empty { display: none; }
+.scope { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #5a4518; background: #1d1810; color: var(--warn); border-radius: 999px; padding: 1px 4px 1px 10px; font-size: 12px; }
+.scope button { border: 0; background: none; padding: 0 6px; color: var(--warn); }
+.pkgrid { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1100px) { .pkgrid { grid-template-columns: minmax(0, 1fr) 380px; } }
+.plist { position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; min-width: 0; }
+.pr { display: grid; grid-template-columns: 96px 66px 30px minmax(150px, 1.25fr) 124px 34px 44px minmax(120px, 2fr);
+      grid-template-areas: "t d ch sd ty l r i"; column-gap: 8px; align-items: center; height: 22px; padding: 0 8px; font-size: 12px;
+      border-bottom: 1px solid #161b22; cursor: pointer; white-space: nowrap; }
+.pr > span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ph { cursor: default; color: var(--dim); font-weight: 600; background: var(--panel-2); border-bottom: 1px solid var(--line); height: 24px; }
+.pr .t { grid-area: t; } .pr .d { grid-area: d; text-align: right; color: var(--dim); } .pr .ch { grid-area: ch; text-align: right; color: var(--dim); }
+.pr .sd { grid-area: sd; } .pr .ty { grid-area: ty; } .pr .l { grid-area: l; text-align: right; color: var(--dim); }
+.pr .r { grid-area: r; text-align: right; color: var(--dim); } .pr .i { grid-area: i; color: #b5bfcb; }
+.pv { height: 460px; overflow-y: auto; overflow-x: hidden; position: relative; outline: none; overscroll-behavior: contain; }
+.pv:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+#prows { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
+.pr:not(.ph):hover { background: #151a21; }
+.pr.sel, .pr.sel:hover { background: #302718; box-shadow: inset 3px 0 var(--warn); }
+.pr .ty { font-weight: 600; }
+.k-adv .ty { color: #79b8ff; } .k-scan .ty { color: #a99cff; } .k-connect .ty { color: var(--warn); }
+.k-data .ty { color: var(--good); } .k-control .ty { color: #f2f2f2; } .k-empty .ty { color: #5f7b6e; font-weight: 400; }
+.k-undecoded .ty, .pr.bad .ty { color: var(--bad); }
+.pr .dir0 { color: var(--c2p); } .pr .dir1 { color: var(--p2c); }
+.pr .ifs { color: var(--dim); font-family: var(--mono); font-size: 11px; margin-left: 6px; }
+#newest { position: absolute; right: 14px; bottom: 10px; z-index: 3; background: #173352; border-color: var(--accent); color: #cfe6ff; }
+.pempty { position: absolute; left: 0; right: 0; top: 40px; text-align: center; color: var(--dim); padding: 0 16px; }
+.detail { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; background: #0f1317; max-height: 486px; overflow-y: auto; }
+.detail .dh { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
+.detail .dh b { flex: 1; font-size: 13px; }
+.detail .dh button { padding: 2px 8px; font-size: 12px; }
+.detail .dsub { color: var(--dim); font-size: 12px; margin-bottom: 6px; overflow-wrap: anywhere; }
+table.kv { font-size: 12px; }
+table.kv th { position: static; background: none; color: var(--dim); font-weight: 500; padding: 2px 8px 2px 0; border: 0; width: 1%; vertical-align: top; }
+table.kv td { white-space: normal; overflow-wrap: anywhere; font-family: var(--mono); padding: 2px 0; border-bottom: 1px solid #161b22; }
+pre.hex { margin: 2px 0 8px; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; word-break: break-all; color: #c9d4e0; background: var(--bg); border: 1px solid #1a2028; border-radius: 6px; padding: 6px 8px; }
+.hl { color: var(--dim); font-size: 11.5px; margin-top: 6px; display: flex; gap: 8px; align-items: center; }
+.hl button { padding: 0 7px; font-size: 11px; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 50; background: #173352; border: 1px solid var(--accent); color: #cfe6ff; padding: 6px 12px; border-radius: 8px; font-size: 12.5px; }
+.loading { color: var(--dim); padding: 18px 4px; text-align: center; }
+.loading b { color: var(--text); font-family: var(--mono); }
+
+@media (max-width: 700px) {
+  header h1 { flex: 1; }
+  .pills { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .pills::-webkit-scrollbar { display: none; }
+  .pr { grid-template-columns: 92px 62px 22px minmax(0, 1fr) 32px; grid-template-areas: "t d ch ty r" "sd sd sd i i"; height: 40px; row-gap: 1px; align-content: center; column-gap: 6px; padding: 0 6px; }
+  .pr .l { display: none; }
+  .pr .i { font-size: 11.5px; text-align: right; }
+  .ph { height: 24px; grid-template-areas: "t d ch ty r"; }
+  .ph .sd, .ph .i { display: none; }
+  .pv { height: 420px; }
+}
+@media (max-width: 600px) {
+  header, .bars, main, .banner { padding-left: 12px; padding-right: 12px; }
+  main { padding-top: 10px; }
+  .chip .lbl { max-width: 8em; }
+  .seg button { padding: 4px 8px; }
+  ol.steps { flex-direction: column; overflow: visible; }
+  ol.steps li.st { display: grid; grid-template-columns: 104px minmax(0, 1fr); align-items: center; min-width: 0; padding: 4px 8px; }
+  ol.steps li.st b { font-size: 16px; } ol.steps li.st.gap b { font-size: 18px; }
+  ol.steps li.cn { align-self: flex-start; padding: 0 0 0 26px; min-height: 12px; font-size: 11px; line-height: 12px; }
+  .hide-sm { display: none; }
+  #pq { width: 100%; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>W1700K <span>Bluetooth</span></h1>
+  <nav aria-label="Pages"><a href="/">Overview</a><a class="on" href="/follow" aria-current="page">Follow</a></nav>
+  <div class="pills" id="status" role="status" aria-live="polite"></div>
+  <div class="tools"><button id="pause" title="Stop polling and freeze what is shown">Pause</button></div>
+</header>
+
+<div class="bars">
+  <div class="addrbar">
+    <div class="chips" id="chips">
+      <input id="addin" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false"
+             placeholder="Add an address or a name (paste several at once)…" aria-label="Add a device address or name" aria-autocomplete="list" aria-controls="sugg">
+    </div>
+    <details class="menu" id="recent"><summary title="Address sets you followed before">Recent</summary><div class="mbody" id="recentbody"></div></details>
+    <div class="sugg" id="sugg" role="listbox" hidden></div>
+  </div>
+  <div class="winbar">
+    <div class="seg" id="spans" role="group" aria-label="Live window"></div>
+    <button id="fixedbtn" title="Look at a fixed time range instead of the live window">Range…</button>
+    <span class="fixedform" id="fixedform" hidden>
+      <input type="datetime-local" id="from" step="1" aria-label="From"><span class="dim">→</span><input type="datetime-local" id="to" step="1" aria-label="To">
+      <button id="apply">Apply</button><button id="golive" title="Back to the live window">Live</button>
+    </span>
+    <button id="jump" title="Show the window that ends when the followed devices were last heard" hidden>Jump to last heard</button>
+    <button id="others" title="Also list packets exchanged with devices outside the followed set">Others</button>
+    <details class="menu" id="export"><summary>Export</summary><div class="mbody" id="expbody"></div></details>
+    <div class="wininfo" id="wininfo"></div>
+  </div>
+</div>
+<div class="banner" id="banner" hidden></div>
+
+<main id="main">
+  <section class="wide" id="intro" hidden>
+    <div class="head"><h2>Follow devices by address</h2></div>
+    <p>Type or paste one or more Bluetooth LE addresses above (any format: <span class="mono">AA:BB:CC:DD:EE:FF</span>,
+      <span class="mono">aa-bb-…</span>, <span class="mono">aabbccddeeff</span>) or search by name. Up to 8 devices.</p>
+    <p>The page shows every packet between them and where a connection attempt breaks down, telling apart:</p>
+    <ol>
+      <li>the central never sent a connection request (it only scans, or it talks to someone else),</li>
+      <li>it sent one and the sniffer decoded it, but nothing followed (the peripheral did not answer, or the central gave up),</li>
+      <li>it sent one and the sniffer could not decode it (a collision in the reply slot, a weak signal, a PHY the sniffer does not decode, a capture gap),</li>
+      <li>the two were already connected before the window,</li>
+      <li>the address is not the one on air (resolvable private addresses change about every 15 minutes).</li>
+    </ol>
+    <p class="note">The sniffer decodes LE 1M only and does not decrypt.</p>
+    <div class="recent" id="introrecent"></div>
+  </section>
+
+  <section class="wide" id="diag" hidden>
+    <div class="head"><h2>Diagnosis</h2><span class="note" id="diagnote"></span></div>
+    <div class="funnels" id="funnels"></div>
+    <div class="dgrid">
+      <div><ul class="finds" id="finds"></ul></div>
+      <div><div class="devs" id="devs"></div><div class="cap" id="cap"></div></div>
+    </div>
+  </section>
+
+  <section class="wide" id="tlsec" hidden>
+    <div class="head">
+      <h2>Timeline</h2>
+      <div class="legend" id="tllegend">
+        <span><i style="background:var(--c2p)"></i>central → peripheral</span><span><i style="background:var(--p2c)"></i>peripheral → central</span>
+        <span><i style="background:var(--warn)"></i>connection request</span><span><i style="background:var(--bad)"></i>undecoded / bad CRC / loss</span>
+        <span><i style="background:rgba(245,176,65,.35)"></i>advertising gap</span>
+      </div>
+      <div class="tlbtns"><button id="zout" title="Zoom out" aria-label="Zoom out">−</button><button id="zin" title="Zoom in" aria-label="Zoom in">+</button><button id="zreset" title="Whole window (double-click the timeline)">Reset</button></div>
+    </div>
+    <div class="tlwrap" id="tlwrap"><canvas id="tl" aria-label="Timeline of the followed devices' packets"></canvas><div class="tip" id="tip" hidden></div></div>
+    <div class="tlnote" id="tlnote"></div>
+  </section>
+
+  <section class="wide" id="attsec" hidden>
+    <div class="head"><h2>Connection attempts <span class="cnt dim" id="attcnt"></span></h2><span class="note">Click a row: zoom the timeline to it and list its packets.</span></div>
+    <div class="scroll tall" id="attwrap"></div>
+    <div class="attx" id="attx" hidden></div>
+  </section>
+
+  <section id="peersec" hidden>
+    <div class="head"><h2>Peers and competitors</h2></div>
+    <div id="peers"></div>
+  </section>
+
+  <section id="candsec" hidden>
+    <div class="head"><h2>Blind connections <span class="cnt dim" id="candcnt"></span></h2></div>
+    <div id="cands"></div>
+  </section>
+
+  <section class="wide" id="pktsec" hidden>
+    <div class="head"><h2>Packets <span class="cnt dim" id="pktcnt"></span></h2></div>
+    <div class="pkhead"><div class="tfil" id="tfil"></div><input type="search" id="pq" placeholder="Filter: type, address, label, AA, info" aria-label="Filter packets" autocomplete="off"></div>
+    <div class="scopes" id="scopes"></div>
+    <div class="pkgrid">
+      <div class="plist">
+        <div class="pr ph" aria-hidden="true"><span class="t">time</span><span class="d">Δ</span><span class="ch">ch</span><span class="sd">src → dst</span><span class="ty">type</span><span class="l">len</span><span class="r">RSSI</span><span class="i">info</span></div>
+        <div class="pv" id="pv" tabindex="0" aria-label="Packet list"><div id="pspace"><div id="prows"></div></div></div>
+        <div class="pempty" id="pempty" hidden></div>
+        <button id="newest" hidden>↓ Newest</button>
+      </div>
+      <aside class="detail" id="detail"><div class="note">Click a packet (here or on the timeline) for its decoded fields and bytes.</div></aside>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function () {
+"use strict";
+
+// ---- constants, helpers -----------------------------------------------------------------------
+
+const MAX_ADDRS = 8;
+const MAX_SPAN = 6 * 3600;
+const POLL_MS = 2000;
+const LIMIT = 20000;
+const KEEP_EVENTS = 40000;
+const SPANS = [[60, "1 min"], [300, "5 min"], [600, "10 min"], [1800, "30 min"], [3600, "60 min"]];
+const COLORS = ["#f0a35e", "#6cc4ff", "#d39bf0", "#7fd88f", "#ff8fa3", "#e5d36a", "#5fd3c7", "#b8a1ff"];
+const OUTCOME = {
+  established: ["established", "good"], ended: ["ended", "good"], terminated: ["terminated", "warn"],
+  phy_change: ["PHY change", "warn"], central_only: ["central only", "bad"], no_data: ["no data", "bad"],
+  ongoing: ["ongoing", "acc"], unknown: ["not judged", "acc"]
+};
+const OUT_COLOR = { good: "#3ecf8e", warn: "#f5b041", bad: "#ff6b6b", acc: "#3d9bff" };
+const START_STATE = { before_window: "connected before the window", run_start: "already connected when the sniffer run started",
+                      in_window: "started in the window: its request was not decoded" };
+const CATS = [["adv", "adverts"], ["scan", "scan"], ["connect", "connect"], ["data", "data"], ["control", "control"],
+              ["empty", "empty"], ["undecoded", "undecoded"]];
+const SCAN_T = { SCAN_REQ: 1, AUX_SCAN_REQ: 1, SCAN_RSP: 1, AUX_SCAN_RSP: 1 };
+const CONN_T = { CONNECT_IND: 1, AUX_CONNECT_REQ: 1, AUX_CONNECT_RSP: 1 };
+const DIR_ROW = { SCAN_REQ: "SCAN_REQ", AUX_SCAN_REQ: "SCAN_REQ", SCAN_RSP: "SCAN_RSP", AUX_SCAN_RSP: "SCAN_RSP",
+                  CONNECT_IND: "CONNECT", AUX_CONNECT_REQ: "CONNECT", AUX_CONNECT_RSP: "CONNECT", ADV_DIRECT_IND: "DIRECT" };
+const DIR_ROWS = ["SCAN_REQ", "SCAN_RSP", "CONNECT", "DIRECT", "UNDECODED"];
+const DIR_COLOR = { SCAN_REQ: "#a99cff", SCAN_RSP: "#5fd3c7", CONNECT: "#f5b041", DIRECT: "#ff8fd0", UNDECODED: "#ff6b6b" };
+const DIR_NAME = { SCAN_REQ: "scan req", SCAN_RSP: "scan rsp", CONNECT: "connect", DIRECT: "direct adv", UNDECODED: "undecoded" };
+const ADDR_RE = /[0-9A-F]{2}(?::[0-9A-F]{2}){5}/g;
+
+const $ = (id) => document.getElementById(id);
+const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+function esc(v) { return v === null || v === undefined ? "" : String(v).replace(/[&<>"']/g, (c) => ESC[c]); }
+const num = (v) => typeof v === "number" && isFinite(v);
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode: fine */ } }
+};
+const pad2 = (n) => (n < 10 ? "0" : "") + n;
+function hms(ts) { const d = new Date(ts * 1000); return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds()); }
+function fmtTime(ts, digits) {
+  if (!num(ts)) return "";
+  const dg = digits === undefined ? 3 : digits;
+  const s = hms(ts);
+  if (!dg) return s;
+  const frac = ts - Math.floor(ts);
+  return s + "." + String(Math.floor(frac * Math.pow(10, dg) + 1e-6)).padStart(dg, "0").slice(0, dg);
+}
+function fmtDate(ts) {
+  if (!num(ts)) return "";
+  const d = new Date(ts * 1000);
+  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + " " + hms(ts);
+}
+function sameDay(a, b) { const x = new Date(a * 1000), y = new Date(b * 1000); return x.toDateString() === y.toDateString(); }
+function fmtWhen(ts) { return num(ts) ? (sameDay(ts, Date.now() / 1000) ? hms(ts) : fmtDate(ts)) : ""; }
+function fmtDur(s) {
+  if (!num(s)) return "";
+  const a = Math.abs(s);
+  if (a < 1e-3) return (s * 1e6).toFixed(a < 1e-5 ? 1 : 0) + " µs";
+  if (a < 1) return (s * 1e3).toFixed(a < 0.01 ? 2 : a < 0.1 ? 1 : 0) + " ms";
+  if (a < 60) return s.toFixed(a < 10 ? 2 : 1) + " s";
+  if (a < 3600) return Math.floor(a / 60) + " min" + (a % 60 >= 1 ? " " + Math.floor(a % 60) + " s" : "");
+  if (a < 86400) return Math.floor(a / 3600) + " h" + (a % 3600 >= 60 ? " " + Math.floor((a % 3600) / 60) + " min" : "");
+  return Math.floor(a / 86400) + " d " + Math.floor((a % 86400) / 3600) + " h";
+}
+function fmtAgo(ts) { if (!num(ts)) return ""; const d = Date.now() / 1000 - ts; return d < 1 ? "just now" : fmtDur(d) + " ago"; }
+function fmtN(n) { return num(n) ? Math.round(n).toLocaleString("en-US") : n === null || n === undefined ? "–" : esc(n); }
+function fmtPct(x, d) { return num(x) ? (x * 100).toFixed(d === undefined ? (x < 0.1 ? 1 : 0) : d) + " %" : "–"; }
+function fmtMs(v) { return num(v) ? (Math.abs(v) >= 100 ? v.toFixed(0) : String(+v.toFixed(2))) + " ms" : ""; }
+function plural(n, w, ws) { return fmtN(n) + " " + (n === 1 ? w : (ws || w + "s")); }
+function lowerBound(arr, ts) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m].ts < ts) lo = m + 1; else hi = m; } return lo; }
+const cmpEv = (a, b) => a.ts - b.ts || a.id - b.id;
+
+function normAddr(text) {
+  const s = String(text || "").trim().toUpperCase();
+  let hex = null;
+  if (/^[0-9A-F]{2}([:\-])[0-9A-F]{2}(\1[0-9A-F]{2}){4}$/.test(s)) hex = s.replace(/[:\-]/g, "");
+  else if (/^[0-9A-F]{12}$/.test(s)) hex = s;
+  else if (/^[0-9A-F]{4}\.[0-9A-F]{4}\.[0-9A-F]{4}$/.test(s)) hex = s.replace(/\./g, "");
+  return hex ? hex.match(/../g).join(":") : null;
+}
+function extractAddrs(text) {
+  const out = [];
+  const re = /(?:^|[^0-9A-Fa-f])((?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{12})(?![0-9A-Fa-f])/g;
+  let m;
+  while ((m = re.exec(String(text)))) { const a = normAddr(m[1]); if (a && out.indexOf(a) < 0) out.push(a); }
+  return out;
+}
+
+// ---- state --------------------------------------------------------------------------------------
+
+const S = {
+  addrs: [], mode: "live", span: 600, start: null, end: null, others: null, paused: false,
+  res: null, events: [], evById: new Map(), afterId: 0, olderMissing: 0, loadedFrom: null, connSig: new Map(),
+  needFull: false, lastFull: 0, gen: 0, inflight: null, timer: null, loadStart: null, lastDur: 0,
+  lastOk: 0, lastErr: null, errCount: 0, nextAt: 0,
+  view: null, scope: null, sel: null, names: {}
+};
+let labels = LS.get("follow.labels", {});
+if (!labels || typeof labels !== "object") labels = {};
+
+const colorOf = (a) => { const i = S.addrs.indexOf(a); return i < 0 ? null : COLORS[i % COLORS.length]; };
+const labelOf = (a) => (a && typeof labels[a] === "string" && labels[a]) || "";
+function nameOf(a) {
+  if (!a) return "";
+  if (S.res) for (const d of S.res.devices || []) if (d.addr === a && d.name) return d.name;
+  return S.names[a] || "";
+}
+// an address as HTML: label + address (+ air name, dimmed); followed ones in their colour; others clickable to follow
+function adHTML(a, opts) {
+  const o = opts || {};
+  if (!a) return '<span class="dim">' + esc(o.none || "?") + "</span>";
+  const c = colorOf(a), lb = labelOf(a), nm = o.noname ? "" : nameOf(a);
+  const short = o.short && (lb || nm);
+  const inner = (lb ? '<span class="al">' + esc(lb) + "</span>" : "") +
+    (short && !lb ? '<span class="al">' + esc(nm) + "</span>" : "") +
+    (short ? "" : '<span class="aa">' + esc(a) + "</span>") +
+    (nm && !short && !lb ? '<span class="an">' + esc(nm) + "</span>" : "");
+  const title = a + (lb ? " · " + lb : "") + (nm ? " · " + nm : "");
+  if (c) return '<span class="ad f" style="--c:' + c + '" title="' + esc(title) + '">' + inner + "</span>";
+  if (o.follow === false) return '<span class="ad" title="' + esc(title) + '">' + inner + "</span>";
+  return '<button class="ad o" data-add="' + esc(a) + '" title="' + esc(title + " · click to follow it too") + '">' + inner + "</button>";
+}
+function plainName(a) { return a ? (labelOf(a) || nameOf(a) || a) : "anyone"; }
+
+// ---- URL ----------------------------------------------------------------------------------------
+
+function readUrl() {
+  const q = new URLSearchParams(location.search);
+  const raw = q.get("addrs") || q.get("addr") || "";
+  const addrs = [], bad = [];
+  for (const tok of raw.split(/[\s,;]+/)) {
+    if (!tok) continue;
+    const a = normAddr(tok);
+    if (a) { if (addrs.indexOf(a) < 0) addrs.push(a); } else bad.push(tok);
+  }
+  S.addrs = addrs.slice(0, MAX_ADDRS);
+  const st = parseFloat(q.get("start")), en = parseFloat(q.get("end"));
+  if (isFinite(st) && isFinite(en) && en > st) { S.mode = "fixed"; S.start = st; S.end = en; S.span = Math.min(en - st, MAX_SPAN); }
+  else {
+    S.mode = "live"; S.start = S.end = null;
+    const sp = parseFloat(q.get("span"));
+    S.span = isFinite(sp) && sp > 0 ? Math.min(sp, MAX_SPAN) : 600;
+  }
+  const o = q.get("others");
+  S.others = o === "1" || o === "true" ? true : o === "0" || o === "false" ? false : null;
+  const sdr = q.get("sdr");
+  S.sdr = sdr && /^[A-Za-z0-9_.:-]{1,40}$/.test(sdr) ? sdr : null;      // which receiver's rows (the overview's SDR choice)
+  S.urlNote = bad.length ? "Not an address, ignored: " + bad.join(", ") : (addrs.length > MAX_ADDRS ? "Only the first 8 addresses are followed." : "");
+}
+function selQuery() {
+  const p = [];
+  if (S.addrs.length) p.push("addrs=" + S.addrs.join(","));
+  if (S.mode === "fixed") p.push("start=" + (+S.start.toFixed(3)), "end=" + (+S.end.toFixed(3)));
+  else p.push("span=" + (+S.span.toFixed(3)));
+  if (S.others !== null) p.push("others=" + (S.others ? 1 : 0));
+  if (S.sdr) p.push("sdr=" + encodeURIComponent(S.sdr));
+  return p;
+}
+function writeUrl(push) {
+  const url = location.pathname + "?" + selQuery().join("&");
+  if (url === location.pathname + location.search) return;
+  try { if (push) history.pushState(null, "", url); else history.replaceState(null, "", url); } catch (e) { /* file:// */ }
+}
+
+// ---- loading ------------------------------------------------------------------------------------
+
+function selectionChanged(push) {
+  S.gen++;
+  if (S.inflight) { try { S.inflight.abort(); } catch (e) { /* */ } }
+  S.inflight = null;
+  clearTimeout(S.timer); S.timer = null;
+  S.res = null; S.events = []; S.evById = new Map(); S.afterId = 0; S.olderMissing = 0; S.loadedFrom = null;
+  S.connSig = new Map(); S.needFull = false; S.view = null; S.scope = null; S.sel = null;
+  S.lastErr = null; S.errCount = 0; S.lastOk = 0; S.lastDur = 0; S.loadStart = null;
+  P.top = true;
+  writeUrl(push);
+  renderAll();
+  hideDetail();
+  if (S.addrs.length) load(true);
+}
+
+async function load(full) {
+  clearTimeout(S.timer); S.timer = null;
+  if (!S.addrs.length || S.inflight) return;
+  const gen = S.gen;
+  const inc = !full && !S.needFull && S.res && S.afterId > 0 && S.mode === "live";
+  S.polls = (S.polls || 0) + 1;
+  const q = selQuery();
+  q.push("limit=" + LIMIT);
+  if (inc) q.push("after_id=" + S.afterId);
+  const ctl = new AbortController();
+  S.inflight = ctl;
+  S.loadStart = performance.now();
+  renderStatus();
+  const killer = setTimeout(() => ctl.abort(), 90000);
+  let res = null, err = null;
+  try {
+    const r = await fetch("/api/follow?" + q.join("&"), { signal: ctl.signal, cache: "no-store" });
+    const txt = await r.text();
+    let body = null;
+    try { body = JSON.parse(txt); } catch (e) { /* not JSON */ }
+    if (!r.ok || !body || body.error) {
+      err = { status: r.status, msg: (body && body.error) || ("HTTP " + r.status + (txt ? ": " + txt.slice(0, 160) : "")), busy: !!(body && body.busy) };
+    } else res = body;
+  } catch (e) {
+    err = { status: 0, msg: e && e.name === "AbortError" ? "no answer within 90 s" : "the server is not reachable (" + (e && e.message || e) + ")" };
+  }
+  clearTimeout(killer);
+  if (gen !== S.gen) return;              // the selection changed meanwhile: a newer load owns the state
+  S.inflight = null;
+  S.lastDur = (performance.now() - S.loadStart) / 1000;
+  S.loadStart = null;
+  if (err) { err.at = Date.now(); S.lastErr = err; S.errCount++; }
+  else {
+    S.lastErr = null; S.errCount = 0; S.lastOk = Date.now();
+    try { ingest(res, !inc); } catch (e) { S.lastErr = { status: 0, msg: "could not read the response: " + e.message, at: Date.now() }; }
+    if (!inc) rememberRecent();
+  }
+  if (err && err.busy) {
+    // the server runs few analyses at once: come back soon, in any mode (a fixed window does not poll)
+    clearTimeout(S.timer);
+    const d = 1000 + Math.random() * 1500;
+    S.nextAt = Date.now() + d;
+    S.timer = setTimeout(() => { if (gen === S.gen) load(full); }, d);
+    renderAll();
+    return;
+  }
+  renderAll();
+  schedule();
+}
+
+function ingest(res, full) {
+  const evs = Array.isArray(res.events) ? res.events : [];
+  if (full) {
+    S.events = evs.slice().sort(cmpEv);
+    S.evById = new Map();
+    for (const e of S.events) S.evById.set(e.id, e);
+    S.olderMissing = Math.max(0, (res.events_total || 0) - evs.length);
+    S.loadedFrom = S.olderMissing && S.events.length ? S.events[0].ts : null;
+    S.lastFull = Date.now(); S.needFull = false;
+    S.connSig = new Map();
+    for (const c of res.connections || []) S.connSig.set(connSig(c), c.gid);
+  } else {
+    // a connection already running at the window start is named after its first row in the window, so its gid
+    // changes as the live window slides: carry the loaded rows over to the new name
+    const alias = {};
+    for (const c of res.connections || []) {
+      const sig = connSig(c), prev = S.connSig.get(sig);
+      if (prev === undefined) S.needFull = true;     // a connection not seen before can claim rows we skipped: reload
+      else if (prev !== c.gid) alias[prev] = c.gid;
+      S.connSig.set(sig, c.gid);
+    }
+    if (Object.keys(alias).length) {
+      for (const e of S.events) if (e.conn && alias[e.conn]) e.conn = alias[e.conn];
+      if (S.scope && S.scope.kind === "group" && alias[S.scope.gid]) S.scope.gid = alias[S.scope.gid];
+    }
+    if (res.events_truncated) S.needFull = true;       // more new rows than the limit: a hole; reload whole
+    let unsorted = false;
+    for (const e of evs) {
+      const old = S.evById.get(e.id);
+      if (old) { Object.assign(old, e); unsorted = true; continue; }
+      const last = S.events.length ? S.events[S.events.length - 1] : null;
+      if (last && cmpEv(e, last) < 0) unsorted = true;
+      S.evById.set(e.id, e); S.events.push(e);
+    }
+    if (unsorted) S.events.sort(cmpEv);
+  }
+  // the live window slides: drop what fell out of it
+  const cut = lowerBound(S.events, res.start);
+  const extra = Math.max(0, S.events.length - cut - KEEP_EVENTS);
+  if (cut + extra > 0) {
+    for (let i = 0; i < cut + extra; i++) S.evById.delete(S.events[i].id);
+    S.events.splice(0, cut + extra);
+    if (extra) { S.olderMissing += extra; S.loadedFrom = S.events.length ? S.events[0].ts : null; }
+  }
+  if (S.loadedFrom !== null && S.loadedFrom <= res.start) { S.loadedFrom = null; S.olderMissing = 0; }
+  // the next poll asks only for rows after this id. Not the db's max_id: a row stored before this answer but stamped
+  // after its end (clock steps, batching) would be skipped forever. Rows of the last 2 s come again and are deduplicated.
+  const lim = res.end - 2;
+  let mx = S.afterId;
+  for (const e of full ? S.events : evs) if (e.ts <= lim && e.id > mx) mx = e.id;
+  S.afterId = mx;
+  for (const d of res.devices || []) if (d.name) S.names[d.addr] = d.name;
+  S.res = res;
+  if (S.view) {             // keep a zoom inside the (moving) window
+    const v0 = Math.max(S.view[0], res.start), v1 = Math.min(S.view[1], res.end);
+    S.view = v1 - v0 > 1e-4 ? [v0, v1] : null;
+  }
+}
+
+function connSig(c) { return (c.key || c.aa) + "|" + (num(c.connect_ts) ? c.connect_ts : c.first_seen); }
+function pollDelay() {
+  if (S.lastErr) return Math.min(30000, POLL_MS * Math.pow(2, Math.min(S.errCount, 4)));
+  return Math.min(30000, Math.max(POLL_MS, S.lastDur * 3000));
+}
+function schedule() {
+  clearTimeout(S.timer); S.timer = null; S.nextAt = 0;
+  if (!S.addrs.length || S.mode !== "live" || S.paused || document.hidden) return;
+  if (S.lastErr && S.lastErr.status === 400) return;            // a bad window does not fix itself: wait for the user
+  const d = pollDelay();
+  S.nextAt = Date.now() + d;
+  S.timer = setTimeout(() => load(S.needFull || Date.now() - S.lastFull > 300000), d);
+}
+function isStale() {
+  if (!S.res) return false;
+  if (S.lastErr) return true;
+  if (S.mode !== "live" || S.paused) return false;
+  return Date.now() - S.lastOk > Math.max(12000, pollDelay() * 3 + S.lastDur * 1000);
+}
+// The capture behind the data: polling can work while the sniffer (or its stream, or the sink) has stopped. Then
+// the newest verdicts are not current: say so in red. Live only (a fixed window says it in its findings).
+const CAPTURE_STALE_S = 15;
+function captureText(sn) {
+  const at = num(sn.capture_end) ? sn.capture_end : null;
+  return "capture " + (sn.capture_state === "stalled" ? "stalled (no samples)" : "stopped") + (at ? " at " + fmtWhen(at) : "");
+}
+function captureStale() {
+  if (!S.res || S.mode !== "live" || !S.addrs.length) return null;
+  const sn = S.res.sniffer || {};
+  if (num(sn.capture_age_s) && sn.capture_age_s > CAPTURE_STALE_S && (sn.capture_state === "stopped" || sn.capture_state === "stalled"))
+    return { since: num(sn.capture_end) ? sn.capture_end : null, text: captureText(sn), kind: sn.capture_state };
+  // no STATS to tell: rows that stopped coming are the only sign
+  if (!sn.stats_rows && num(sn.newest_row_ts) && num(S.res.end) && S.res.end - sn.newest_row_ts > CAPTURE_STALE_S)
+    return { since: sn.newest_row_ts, text: "no packet stored since " + fmtWhen(sn.newest_row_ts), kind: "silent" };
+  return null;
+}
+
+// ---- recent sets, labels ------------------------------------------------------------------------
+
+function rememberRecent() {
+  if (!S.addrs.length) return;
+  let rec = LS.get("follow.recent", []);
+  if (!Array.isArray(rec)) rec = [];
+  const key = S.addrs.join(",");
+  rec = rec.filter((r) => r && Array.isArray(r.addrs) && r.addrs.join(",") !== key);
+  const names = {};
+  for (const a of S.addrs) if (nameOf(a)) names[a] = nameOf(a).slice(0, 60);
+  rec.unshift({ addrs: S.addrs.slice(), names: names, t: Date.now() });
+  LS.set("follow.recent", rec.slice(0, 12));
+  renderRecent();
+}
+function recentHTML(asButtons) {
+  let rec = LS.get("follow.recent", []);
+  if (!Array.isArray(rec)) rec = [];
+  const out = [];
+  for (const r of rec) {
+    if (!r || !Array.isArray(r.addrs)) continue;
+    const addrs = r.addrs.map(normAddr).filter(Boolean).slice(0, MAX_ADDRS);
+    if (!addrs.length) continue;
+    const txt = addrs.map((a) => labelOf(a) || (r.names && typeof r.names[a] === "string" && r.names[a]) || a).join(" · ");
+    out.push('<button data-set="' + esc(addrs.join(",")) + '" title="' + esc(addrs.join(", ")) + '">' + esc(txt) +
+      (asButtons ? "" : ' <span class="dim">' + esc(fmtAgo((r.t || 0) / 1000)) + "</span>") + "</button>");
+  }
+  return out;
+}
+function renderRecent() {
+  const items = recentHTML(false);
+  $("recentbody").innerHTML = items.length ? items.join("") : '<div class="mnote">Sets you follow appear here.</div>';
+  const ib = recentHTML(true);
+  $("introrecent").innerHTML = ib.length ? '<span class="note" style="align-self:center">Recent:</span>' + ib.join("") : "";
+}
+function setLabel(a, text) {
+  const t = String(text || "").trim().slice(0, 40);
+  if (t) labels[a] = t; else delete labels[a];
+  LS.set("follow.labels", labels);
+  renderAll();
+  hideDetail(true);
+}
+
+// ---- address bar --------------------------------------------------------------------------------
+
+function addAddrs(list) {
+  let added = 0, full = false;
+  for (const a of list) {
+    if (S.addrs.indexOf(a) >= 0) continue;
+    if (S.addrs.length >= MAX_ADDRS) { full = true; break; }
+    S.addrs.push(a); added++;
+  }
+  if (full) toast("At most " + MAX_ADDRS + " addresses: remove one first.");
+  if (added) selectionChanged(true);
+  return added;
+}
+function removeAddr(a) { const i = S.addrs.indexOf(a); if (i >= 0) { S.addrs.splice(i, 1); selectionChanged(true); } }
+function swapAddr(a) {
+  const i = S.addrs.indexOf(a);
+  if (i < 0 || i + 1 >= S.addrs.length) return;
+  const t = S.addrs[i]; S.addrs[i] = S.addrs[i + 1]; S.addrs[i + 1] = t;
+  writeUrl(true); renderAll();
+}
+function renderChips() {
+  const box = $("chips"), inp = $("addin");
+  for (const el of Array.from(box.querySelectorAll(".chip"))) el.remove();
+  S.addrs.forEach((a, i) => {
+    const el = document.createElement("span");
+    el.className = "chip";
+    el.style.setProperty("--c", colorOf(a));
+    const lb = labelOf(a), nm = nameOf(a);
+    el.innerHTML = '<button class="lbl' + (lb ? "" : " none") + '" data-label="' + esc(a) + '" title="' +
+      esc(lb ? "Your label (click to edit)" + (nm ? " · advertised name: " + nm : "") : "Add a label") + '">' +
+      esc(lb || nm || "label") + "</button>" +
+      '<span class="ca">' + esc(a) + "</span>" +
+      (i + 1 < S.addrs.length ? '<button class="ic" data-swap="' + esc(a) + '" title="Swap with the next address" aria-label="Swap with the next address">⇄</button>' : "") +
+      '<button class="ic" data-rm="' + esc(a) + '" title="Stop following" aria-label="Stop following ' + esc(a) + '">×</button>';
+    box.insertBefore(el, inp);
+  });
+  inp.placeholder = S.addrs.length ? (S.addrs.length >= MAX_ADDRS ? "8 addresses: the maximum" : "Add…") :
+    "Add an address or a name (paste several at once)…";
+}
+function editLabel(a, btn) {
+  const inp = document.createElement("input");
+  inp.className = "lblin"; inp.value = labelOf(a); inp.placeholder = nameOf(a) || "label"; inp.maxLength = 40;
+  inp.setAttribute("aria-label", "Label for " + a);
+  btn.replaceWith(inp);
+  inp.focus(); inp.select();
+  let done = false;
+  const finish = (save) => { if (done) return; done = true; if (save) setLabel(a, inp.value); else renderChips(); };
+  inp.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); finish(true); } else if (ev.key === "Escape") finish(false); });
+  inp.addEventListener("blur", () => finish(true));
+}
+
+const SG = { items: [], act: -1, timer: null, seq: 0, q: "" };
+function hideSugg() { $("sugg").hidden = true; SG.items = []; SG.act = -1; $("addin").setAttribute("aria-expanded", "false"); }
+function renderSugg(msg) {
+  const box = $("sugg");
+  if (!SG.items.length) {
+    if (msg) { box.innerHTML = '<div class="sx">' + esc(msg) + "</div>"; box.hidden = false; } else hideSugg();
+    return;
+  }
+  box.innerHTML = SG.items.map((d, i) => {
+    const meta = [d.addr_type, (d.roles || []).join(", "), d.vendor, num(d.packets) ? fmtN(d.packets) + " packets" : "",
+                  d.last_seen ? "last heard " + fmtAgo(d.last_seen) : ""].filter(Boolean).join(" · ");
+    const followed = S.addrs.indexOf(d.addr) >= 0;
+    return '<button role="option" data-pick="' + i + '"' + (i === SG.act ? ' class="act" aria-selected="true"' : "") + ">" +
+      '<span class="sn">' + esc(labelOf(d.addr) || d.name || "(no name)") + (followed ? ' <span class="tag acc">followed</span>' : "") + "</span>" +
+      '<span class="sa">' + esc(d.addr) + "</span>" + '<span class="sm">' + esc(meta) + "</span></button>";
+  }).join("");
+  box.hidden = false;
+  $("addin").setAttribute("aria-expanded", "true");
+}
+function suggest(q) {
+  clearTimeout(SG.timer);
+  const t = q.trim();
+  if (t.length < 2) { hideSugg(); return; }
+  SG.timer = setTimeout(async () => {
+    const seq = ++SG.seq;
+    try {
+      const r = await fetch("/api/follow/suggest?limit=12&q=" + encodeURIComponent(t) + (S.sdr ? "&sdr=" + encodeURIComponent(S.sdr) : ""), { cache: "no-store" });
+      const body = await r.json();
+      if (seq !== SG.seq) return;
+      if (!r.ok) { SG.items = []; renderSugg(body && body.error ? body.error : "no suggestions"); return; }
+      SG.items = (body.devices || []).filter((d) => d && normAddr(d.addr)).map((d) => Object.assign({}, d, { addr: normAddr(d.addr) }));
+      SG.act = SG.items.length ? 0 : -1;
+      for (const d of SG.items) if (d.name) S.names[d.addr] = d.name;
+      renderSugg(SG.items.length ? "" : "No device matches “" + t + "”.");
+    } catch (e) { if (seq === SG.seq) { SG.items = []; renderSugg("suggestions unavailable"); } }
+  }, 220);
+}
+function commitInput() {
+  const inp = $("addin");
+  const text = inp.value;
+  if (!text.trim()) return;
+  const toks = text.split(/[\s,;]+/).filter(Boolean);
+  const good = [], bad = [];
+  for (const t of toks) { const a = normAddr(t); if (a) good.push(a); else bad.push(t); }
+  if (good.length) {
+    addAddrs(good);
+    inp.value = bad.join(" ");
+    hideSugg();
+    if (bad.length) toast("Not an address: " + bad.join(", "));
+  } else if (SG.items.length && SG.act >= 0) {
+    pickSugg(SG.act);
+  } else toast("Not an address: " + text.trim() + " (pick a suggestion to add by name)");
+}
+function pickSugg(i) {
+  const d = SG.items[i];
+  if (!d) return;
+  $("addin").value = "";
+  hideSugg();
+  addAddrs([d.addr]);
+  $("addin").focus();
+}
+
+// ---- rendering: header, window bar, banner --------------------------------------------------------
+
+function renderStatus() {
+  const pills = [];
+  if (!S.addrs.length) pills.push('<span class="pill">no device followed</span>');
+  else {
+    const stale = isStale();
+    if (S.mode === "fixed") pills.push('<span class="pill">fixed range</span>');
+    else if (S.paused) pills.push('<span class="pill warn">paused</span>');
+    else if (stale) pills.push('<span class="pill bad">not updating</span>');
+    else pills.push('<span class="pill good live">live</span>');
+    const cs = captureStale();
+    if (cs) pills.push('<span class="pill ' + (cs.kind === "silent" ? "warn" : "bad") + '" title="' + esc(cs.text) + '">' +
+      (cs.kind === "silent" ? "no new packets" : "capture " + (cs.kind === "stalled" ? "stalled" : "stopped")) + (cs.since ? " <b>" + esc(fmtAgo(cs.since)) + "</b>" : "") + "</span>");
+    if (S.loadStart !== null) {
+      const el = (performance.now() - S.loadStart) / 1000;
+      pills.push('<span class="pill' + (el > 5 ? " warn" : "") + '">loading <b>' + el.toFixed(1) + " s</b></span>");
+    } else if (S.lastOk && S.mode === "fixed") {
+      pills.push('<span class="pill">loaded <b>' + esc(hms(S.lastOk / 1000)) + "</b></span>");
+    } else if (S.lastOk) {
+      pills.push('<span class="pill' + (stale ? " bad" : "") + '">updated <b>' + esc(fmtAgo(S.lastOk / 1000)) + "</b></span>");
+    }
+    if (S.lastDur && S.lastOk && !S.lastErr) {
+      const slow = S.lastDur > 2;
+      pills.push('<span class="pill' + (slow ? " warn" : "") + '" title="How long the last query took' +
+        (slow && S.mode === "live" ? "; polling slows down to every " + (pollDelay() / 1000).toFixed(0) + " s" : "") + '">query <b>' +
+        S.lastDur.toFixed(S.lastDur < 1 ? 2 : 1) + " s</b></span>");
+    }
+    if (S.res) pills.push('<span class="pill">packets <b>' + fmtN(S.events.length) + "</b>" +
+      (S.olderMissing ? ' <span title="older packets of this window are not loaded">+' + fmtN(S.olderMissing) + "</span>" : "") + "</span>");
+  }
+  $("status").innerHTML = pills.join("");
+  const pb = $("pause");
+  pb.hidden = !S.addrs.length || S.mode !== "live";
+  pb.textContent = S.paused ? "Resume" : "Pause";
+  pb.classList.toggle("on", S.paused);
+}
+
+function lastHeard() {
+  if (!S.res) return null;
+  let m = null;
+  for (const a of S.addrs) {
+    const v = S.res.latest ? S.res.latest[a] : null;
+    if (num(v) && (m === null || v > m)) m = v;
+  }
+  return m;
+}
+function curSpan() { return S.mode === "fixed" ? S.end - S.start : S.span; }
+function toLocalInput(ts) {
+  const d = new Date(ts * 1000);
+  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + "T" + pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds());
+}
+function fromLocalInput(v) { const t = new Date(v).getTime(); return isFinite(t) ? t / 1000 : NaN; }
+
+function renderWindowBar() {
+  $("spans").innerHTML = SPANS.map(([s, l]) => '<button data-span="' + s + '" class="' +
+    (S.mode === "live" && Math.abs(S.span - s) < 0.5 ? "on" : "") + '">' + l + "</button>").join("");
+  $("fixedbtn").classList.toggle("on", S.mode === "fixed");
+  const ff = $("fixedform");
+  if (!ff.dataset.open) ff.hidden = S.mode !== "fixed";
+  if (ff.hidden === false && !ff.dataset.dirty) {
+    const r = S.res;
+    const st = S.mode === "fixed" ? S.start : (r ? r.start : Date.now() / 1000 - S.span);
+    const en = S.mode === "fixed" ? S.end : (r ? r.end : Date.now() / 1000);
+    $("from").value = toLocalInput(st); $("to").value = toLocalInput(en);
+  }
+  $("fixedbtn").hidden = !ff.hidden;
+  $("golive").hidden = S.mode !== "fixed";
+  const lh = lastHeard(), r = S.res;
+  const jumpOK = lh !== null && r && (lh < r.start || lh > r.end || (S.mode === "live" && r.end - lh > Math.min(60, curSpan() / 4)));
+  const jb = $("jump");
+  jb.hidden = !jumpOK;
+  if (jumpOK) jb.title = "Last heard " + fmtDate(lh) + " (" + fmtAgo(lh) + "): show the " + fmtDur(curSpan()) + " up to then";
+  const ob = $("others");
+  const eff = r ? !!r.others : (S.others !== null ? S.others : S.addrs.length === 1);
+  ob.textContent = "Others: " + (eff ? "shown" : "hidden") + (S.others === null ? " (auto)" : "");
+  ob.classList.toggle("on", eff);
+  ob.hidden = !S.addrs.length;
+  // window description
+  let txt = "";
+  if (r) {
+    txt = "<b>" + esc(fmtWhen(r.start)) + "</b> → <b>" + esc(S.mode === "live" ? "now" : fmtWhen(r.end)) + "</b> (" + esc(fmtDur(r.end - r.start)) + ")";
+    if (S.mode === "live" && !sameDay(r.start, r.end)) txt = "<b>" + esc(fmtDate(r.start)) + "</b> → <b>now</b> (" + esc(fmtDur(r.end - r.start)) + ")";
+  } else if (S.addrs.length) {
+    txt = S.mode === "fixed" ? "<b>" + esc(fmtDate(S.start)) + "</b> → <b>" + esc(fmtDate(S.end)) + "</b>" : "last <b>" + esc(fmtDur(S.span)) + "</b>";
+  }
+  $("wininfo").innerHTML = txt;
+  // export
+  const sel = selForExport();
+  $("export").hidden = !S.addrs.length;
+  $("expbody").innerHTML = sel ? [["csv", "CSV", "every listed packet, one row each"], ["json", "JSON", "the whole analysis"],
+    ["pcap", "PCAP", "for Wireshark (LINKTYPE 256)"]].map(([f, l, n]) =>
+      '<a href="/api/follow/export?format=' + f + "&" + esc(sel) + '" download>' + l + ' <span class="dim">· ' + n + "</span></a>").join("") +
+      '<div class="mnote">The window on screen' + (S.mode === "live" ? ", frozen at the last update" : "") + ", up to 20 000 packets.</div>"
+    : '<div class="mnote">Nothing loaded yet.</div>';
+}
+function selForExport() {
+  if (!S.res || !S.addrs.length) return "";
+  const p = ["addrs=" + S.addrs.join(","), "start=" + (+S.res.start.toFixed(3)), "end=" + (+S.res.end.toFixed(3))];
+  if (S.others !== null) p.push("others=" + (S.others ? 1 : 0));
+  if (S.sdr) p.push("sdr=" + encodeURIComponent(S.sdr));
+  return p.join("&");
+}
+
+function renderBanner() {
+  const b = $("banner");
+  const parts = [];
+  if (S.urlNote) parts.push('<div class="warn"><span class="bt">' + esc(S.urlNote) + '</span><button data-dismiss="url">OK</button></div>');
+  const cs = captureStale();
+  if (cs && cs.kind !== "silent") parts.push('<div><span class="bt"><b>The ' + esc(cs.text) + (cs.since ? " (" + esc(fmtAgo(cs.since)) + ")" : "") +
+    ":</b> the page still updates, but nothing has been captured since, so requests and silences after that are not judged (see SNIFFER_LOSS).</span></div>");
+  const e = S.lastErr;
+  if (e && S.addrs.length) {
+    const tooBig = /too large|longer than|at most|more than/i.test(e.msg);
+    let btns = "";
+    if (tooBig && S.mode === "live") btns = SPANS.filter(([s]) => s < S.span).slice(-2).reverse().map(([s, l]) => '<button data-span="' + s + '">Try ' + l + "</button>").join("");
+    if (tooBig && S.mode === "fixed") btns = '<button data-shrink="1">Last 10 min of this range</button>';
+    const when = S.res ? "Showing the data of " + fmtAgo(S.lastOk / 1000) + " (greyed out). " : "";
+    const retry = e.status === 400 ? "" : (e.busy || (S.mode === "live" && !S.paused) ? " Retrying in " + Math.max(1, Math.round((S.nextAt - Date.now()) / 1000)) + " s." : "");
+    parts.push('<div><span class="bt"><b>' + (e.status ? "The server answered " + e.status : "No answer") + ":</b> " + esc(e.msg) + ". " + esc(when) + esc(retry) + "</span>" +
+      btns + '<button data-retry="1">Retry now</button></div>');
+  }
+  b.innerHTML = parts.join("");
+  b.hidden = !parts.length;
+}
+
+// ---- rendering: diagnosis --------------------------------------------------------------------------
+
+function decorate(escaped) {
+  // addresses in server text: label + colour for followed ones, a follow button for the others (input is already escaped)
+  return escaped.replace(ADDR_RE, (m) => {
+    const c = colorOf(m), lb = labelOf(m);
+    if (c) return '<span class="ad f" style="--c:' + c + '">' + (lb ? '<span class="al">' + esc(lb) + "</span>" : "") + '<span class="aa">' + m + "</span></span>";
+    return '<button class="ad o" data-add="' + m + '" title="Follow ' + m + ' too"><span class="aa">' + m + "</span></button>";
+  });
+}
+const REQ_KEYS = ["adv_heard", "connect_ind", "data_started", "peripheral_answered", "established"];
+function funnelInfo(fu) {
+  const steps = Array.isArray(fu.steps) ? fu.steps : [];
+  const by = {};
+  for (const s of steps) by[s.key] = s;
+  const cnt = (k) => (by[k] && num(by[k].count) ? by[k].count : null);
+  // the decoded requests that were judged: connect_ind without the pending ones, the later steps without the
+  // connections whose request is not in the window (those count, but are no request to compare with)
+  const req = (k) => { const c = cnt(k); if (c === null) return null; const s = by[k]; return c - (num(s.pending) ? s.pending : 0) - (num(s.conns) ? s.conns : 0); };
+  const gapIdx = fu.gap ? steps.findIndex((s) => s.key === fu.gap) : -1;
+  const any = steps.some((s) => s.key !== "adv_heard" && num(s.count) && s.count > 0);
+  const score = (cnt("connect_ind") > 0 ? 8 : 0) + (cnt("scan_req") > 0 ? 3 : 0) + (cnt("undecoded_reply") > 0 ? 2 : 0) +
+    (num(fu.reached) ? fu.reached : 0) + (any ? 4 : 0);
+  // a pair already connected needs no advert nor request: those steps count as reached
+  const conn = fu.connected || null;
+  const sat = (s) => !!conn && (s.key === "adv_heard" || s.key === "connect_ind");
+  let lastIdx = -1;
+  steps.forEach((s, i) => { if (!s.optional && ((num(s.count) && s.count > 0) || sat(s))) lastIdx = i; });
+  return { steps, by, cnt, req, gapIdx, score, any, conn, sat, lastIdx, pending: num(fu.pending) ? fu.pending : 0 };
+}
+function funnelVerdict(fu, fi) {
+  if (fi.gapIdx >= 0) {
+    const g = fi.steps[fi.gapIdx];
+    return '<span class="vd bad">✕ Breaks at: ' + esc(g.label) + "</span>";
+  }
+  const ci = fi.req("connect_ind"), ds = fi.req("data_started"), pa = fi.req("peripheral_answered"), es = fi.req("established");
+  const parts = [];
+  const skipped = fi.steps.filter((s, i) => !s.optional && s.count === 0 && i < fi.lastIdx && !fi.sat(s));
+  if (skipped.length) parts.push(skipped.map((s) => "“" + s.label + "”").join(", ") + " none, though later steps were seen");
+  if (num(ci) && num(ds) && ds < ci) parts.push(plural(ci - ds, "request") + " got no data");
+  if (num(ds) && num(pa) && pa < ds) parts.push((ds - pa) + " with data never answered");
+  if (num(pa) && num(es) && es < pa) parts.push((pa - es) + " answered but not established");
+  const pend = fi.pending ? plural(fi.pending, "request") + " not judged yet (too recent, or the capture did not run after it)" : "";
+  if (parts.length) return '<span class="vd warn">▲ ' + (skipped.length ? "" : "Every step reached, but ") + esc(parts.join("; ") + (pend ? "; " + pend : "")) + "</span>";
+  if (fi.conn) return '<span class="vd good">✓ Already connected ' + esc((fi.conn.start === "run_start" ? "when the sniffer run started" : "before the window") +
+    " (AA " + fi.conn.aa + "): no request needed" + (pend ? "; " + pend : "")) + "</span>";
+  if (pend && fi.lastIdx < fi.steps.length - 1 && !(num(ds) && ds > 0)) return '<span class="vd acc">… ' + esc(pend) + "</span>";
+  return '<span class="vd good">✓ Every step reached' + (pend ? esc("; " + pend) : "") + "</span>";
+}
+function gapHint(fu, fi) {
+  if (fi.gapIdx < 0) return "";
+  const g = fi.steps[fi.gapIdx];
+  const und = fi.cnt("undecoded_reply"), scan = fi.cnt("scan_req");
+  const r = S.res || {}, sn = r.sniffer || {};
+  let h = "";
+  if (g.key === "connect_ind") {
+    if (und > 0) h = und + " CONNECT_IND-length " + (und === 1 ? "reply" : "replies") + " to the peripheral's adverts could not be decoded: requests may have been sent and lost (a collision or a weak signal).";
+    else if (scan > 0) h = "The central scans the peripheral but no connection request was decoded: it never sent one, or the sniffer missed it.";
+  } else if (g.key === "adv_heard") {
+    // from the data: why no connectable advert was heard
+    const p = fu.peripheral;
+    const dev = (r.devices || []).find((d) => d.addr === p) || {};
+    const ad = (r.adv || []).find((d) => d.addr === p);
+    const span = num(r.end) && num(r.start) ? r.end - r.start : 0;
+    if (ad && !ad.connectable) h = "It advertises, but only non-connectable PDUs: nobody can connect to it on this address (see NOT_CONNECTABLE).";
+    else if (num(dev.packets_window) && dev.packets_window > 0) h = "It was heard, but sent no connectable advert in this window.";
+    else if (num(sn.capture_age_s) && span && sn.capture_age_s > span / 2) h = "The sniffer was not capturing for most of this window (" + captureText(sn) + "): see SNIFFER_LOSS.";
+    else if (!dev.addr_type || dev.addr_type === "resolvable") h = "Check the address: a resolvable private address changes about every 15 minutes; the device may also be out of range or not advertising.";
+    else h = "It is out of the sniffer's range, switched off or not advertising (its " + dev.addr_type + " address does not rotate).";
+  } else if (g.key === "data_started") {
+    h = "Requests were decoded but no connection event followed on their access address.";
+  } else if (g.key === "peripheral_answered") {
+    h = "The central opened the connection but the peripheral never answered.";
+  }
+  return '<div class="fnote">' + esc(g.note || "") + (h ? '</div><div class="fnote w">' + esc(h) : "") + "</div>";
+}
+function funnelHTML(fu) {
+  const fi = funnelInfo(fu);
+  let lis = "", prevReq = null;
+  fi.steps.forEach((s, i) => {
+    const cls = ["st"];
+    const has = num(s.count);
+    if (s.optional) cls.push("opt");
+    if (i === fi.gapIdx) cls.push("gap");
+    else if (fi.gapIdx >= 0 && i > fi.gapIdx && !(s.optional && has && s.count > 0)) cls.push("after");
+    else if (!has) cls.push("na");
+    else if (s.count > 0 || fi.sat(s)) cls.push(s.optional ? "" : "ok");
+    else cls.push(s.optional ? "zero" : "skip");
+    if (s.key === "undecoded_reply" && has && s.count > 0) cls.push("hint");
+    if (i > 0) lis += '<li class="cn" aria-hidden="true">›</li>';
+    let drop = "";
+    // drops compare judged requests only (not the pending ones, not connections without a request here)
+    const a0 = prevReq ? fi.req(prevReq.key) : null, a1 = fi.req(s.key);
+    if (!s.optional && prevReq && prevReq.key !== "adv_heard" && num(a0) && num(a1) && a1 < a0 && i !== fi.gapIdx) {
+      drop = '<small class="drop" title="' + esc((a0 - a1) + " of the " + a0 + " counted in “" + prevReq.label + "” did not get here") + '">−' +
+        (a0 - a1) + " of " + fmtN(a0) + "</small>";
+      cls.push("lost");
+    }
+    lis += '<li class="' + cls.join(" ") + '" title="' + esc(s.note || "") + '"><b>' + (has ? fmtN(s.count) : "–") + drop + "</b><span>" + esc(s.label) +
+      (s.optional ? " <i class=\"dim\">(optional)</i>" : "") + "</span>" + (i === fi.gapIdx ? "<em>GAP</em>" : "") + "</li>";
+    if (!s.optional) prevReq = s;
+  });
+  return '<div class="fun' + (fi.gapIdx >= 0 ? " hasgap" : "") + '"><div class="fhead"><span class="pair">' +
+    adHTML(fu.central, { none: "anyone", short: true }) + ' <span class="dim">→</span> ' + adHTML(fu.peripheral, { none: "anyone", short: true }) +
+    "</span>" + funnelVerdict(fu, fi) + '</div><ol class="steps">' + lis + "</ol>" + gapHint(fu, fi) + "</div>";
+}
+function funnelLine(fu) {
+  const fi = funnelInfo(fu);
+  return '<div class="funline"><span>' + adHTML(fu.central, { none: "anyone", short: true }) + ' <span class="dim">→</span> ' +
+    adHTML(fu.peripheral, { none: "anyone", short: true }) + "</span>" + funnelVerdict(fu, fi) + "</div>";
+}
+const LV_ICON = { bad: "●", warn: "▲", info: "i" };
+function findingHTML(f) {
+  const lvl = LV_ICON[f.level] ? f.level : "info";
+  const ids = Array.isArray(f.ids) ? f.ids.filter(num) : [];
+  return '<li class="fd ' + lvl + '"><span class="lv" aria-label="' + lvl + '">' + LV_ICON[lvl] + '</span><div><div class="ft">' +
+    decorate(esc(f.text)) + '</div><div class="fm"><code>' + esc(f.code) + "</code>" +
+    (num(f.ts) ? '<button class="lnk" data-zoom="' + f.ts + '" title="' + (S.res && (f.ts < S.res.start || f.ts > S.res.end) ? "Outside this window: show the window around it" : "Zoom the timeline here") +
+      '">⌖ ' + esc(fmtWhen(f.ts)) + "</button>" : "") +
+    (ids.length ? '<button class="lnk" data-ids="' + ids.join(",") + '">' + (ids.length === 1 ? "show the packet" : "show " + ids.length + " packets") + "</button>" : "") +
+    "</div></div></li>";
+}
+function renderDiag() {
+  const r = S.res;
+  const key = r ? JSON.stringify([r.findings, r.funnel, r.devices, r.sniffer, r.capabilities, labels, S.addrs]) : "none" + S.addrs.join() + !!S.lastErr;
+  if (key === renderDiag.key) return;
+  renderDiag.key = key;
+  if (!r) {
+    $("funnels").innerHTML = S.lastErr ? '<div class="empty">No data: see the error above.</div>' : '<div class="loading">Loading the analysis…</div>';
+    $("finds").innerHTML = ""; $("devs").innerHTML = ""; $("cap").innerHTML = ""; $("diagnote").textContent = "";
+    return;
+  }
+  // funnels: the informative pairs first; pairs with nothing at all fold away
+  const fus = (r.funnel || []).map((fu, i) => ({ fu, i, fi: funnelInfo(fu) }));
+  fus.sort((a, b) => b.fi.score - a.fi.score || a.i - b.i);
+  const shown = fus.length <= 3 ? fus : fus.filter((x, i) => i < 2 || (i < 4 && x.fi.any));
+  const rest = fus.filter((x) => shown.indexOf(x) < 0);
+  $("funnels").innerHTML = (shown.length ? shown.map((x) => funnelHTML(x.fu)).join("") : '<div class="empty">No pair to analyse.</div>') +
+    (rest.length ? '<details class="more"><summary>' + rest.length + " more pairs (" +
+      rest.filter((x) => x.fi.gapIdx >= 0 && x.fi.steps[x.fi.gapIdx].key === "adv_heard").length + " with the peripheral never heard)</summary>" +
+      rest.map((x) => funnelLine(x.fu)).join("") + "</details>" : "");
+  // findings, grouped by code when one code repeats (eight addresses give dozens of NO_INTERACTION)
+  const groups = [], byCode = {};
+  for (const f of r.findings || []) {
+    if (!byCode[f.code]) { byCode[f.code] = []; groups.push(byCode[f.code]); }
+    byCode[f.code].push(f);
+  }
+  const groupHTML = (g) => g.length <= 2 ? g.map(findingHTML).join("") :
+    findingHTML(g[0]) + '<li><details class="grp"><summary>' + (g.length - 1) + " more " + esc(g[0].code) + '</summary><ul class="finds">' +
+      g.slice(1).map(findingHTML).join("") + "</ul></details></li>";
+  const SHOW = 6;
+  let fh = groups.slice(0, SHOW).map(groupHTML).join("");
+  const later = groups.slice(SHOW);
+  if (later.length) {
+    const n = later.reduce((a, g) => a + g.length, 0);
+    const lv = { bad: 0, warn: 0, info: 0 };
+    for (const g of later) for (const f of g) lv[f.level] = (lv[f.level] || 0) + 1;
+    const what = [lv.bad ? lv.bad + " problem" + (lv.bad > 1 ? "s" : "") : "", lv.warn ? lv.warn + " warning" + (lv.warn > 1 ? "s" : "") : "",
+      lv.info ? lv.info + " note" + (lv.info > 1 ? "s" : "") : ""].filter(Boolean).join(", ");
+    fh += '<li><details class="grp" id="morefinds"' + (renderDiag.more ? " open" : "") + "><summary>" + n + " more finding" + (n > 1 ? "s" : "") + " (" + esc(what) + "): " +
+      esc(later.map((g) => g[0].code).join(", ")) + '</summary><ul class="finds">' + later.map(groupHTML).join("") + "</ul></details></li>";
+  }
+  $("finds").innerHTML = fh || '<li class="empty">No findings.</li>';
+  const mf = $("morefinds");
+  if (mf) mf.addEventListener("toggle", () => { renderDiag.more = mf.open; });
+  const nb = (r.findings || []).filter((f) => f.level === "bad").length, nw = (r.findings || []).filter((f) => f.level === "warn").length;
+  $("diagnote").textContent = (nb ? nb + " problem" + (nb > 1 ? "s" : "") : "no problem") + (nw ? ", " + nw + " warning" + (nw > 1 ? "s" : "") : "") +
+    " · LE 1M only, no decryption";
+  // followed devices
+  $("devs").innerHTML = S.addrs.map((a) => {
+    const d = (r.devices || []).find((x) => x.addr === a) || { addr: a };
+    const heard = num(d.packets_window) && d.packets_window > 0;
+    const lb = labelOf(a);
+    const meta1 = [d.addr_type ? '<span class="tag' + (d.addr_type === "resolvable" ? " warn" : "") + '">' + esc(d.addr_type) + "</span>" : "",
+      (d.roles || []).map((x) => '<span class="tag">' + esc(x) + "</span>").join(" "), d.vendor ? esc(d.vendor) : ""].filter(Boolean).join(" ");
+    const meta2 = heard
+      ? fmtN(d.packets_window) + " packets · " + (num(d.rssi_avg) ? d.rssi_avg.toFixed(0) + " dBFS · " : "") + "last " + esc(fmtWhen(d.last_seen))
+      : "not heard in this window" + (num(r.latest && r.latest[a]) ? " · last heard " + esc(fmtDate(r.latest[a])) + " (" + esc(fmtAgo(r.latest[a])) + ")" : " · never heard");
+    return '<div class="dev' + (heard ? "" : " nh") + '" style="--c:' + colorOf(a) + '"><div class="dn"><b>' + esc(lb || d.name || "(no name)") + "</b>" +
+      (lb && d.name ? '<span class="dim">' + esc(d.name) + "</span>" : "") + '<span class="mono dim">' + esc(a) + "</span></div>" +
+      (meta1 ? '<div class="dm">' + meta1 + "</div>" : "") + '<div class="dm">' + meta2 + "</div></div>";
+  }).join("");
+  // capture quality
+  const sn = r.sniffer || {}, cap = r.capabilities || {};
+  const lines = [];
+  if (sn.capture_state === "stopped" || sn.capture_state === "stalled")
+    lines.push('<div style="color:var(--bad)"><b>' + esc(captureText(sn)) + "</b>" + (num(sn.capture_age_s) ? (sn.capture_age_s >= r.end - r.start - 0.5 ? " · nothing in this window was captured" :
+      " · the last " + esc(fmtDur(sn.capture_age_s)) + " of the window not captured") : "") + "</div>");
+  if (sn.stats_rows) {
+    // with stretches the capture did not run (stall, restart, stop): the risk of a packet sent while it ran
+    const mp = sn.miss_prob_running || sn.miss_prob || {}, mpm = sn.miss_prob_median || {};
+    lines.push("<div>Capture: " + (num(sn.rate_msps) ? "<b>" + sn.rate_msps + " Msps</b> · " : "") + "lost <b>" + fmtPct(sn.loss_fraction, 2) + "</b>" +
+      (num(sn.loss_fraction_running) ? " (" + fmtPct(sn.loss_fraction_running, 2) + " while running; " + esc(fmtDur(sn.dark_s)) + " not running)" : "") +
+      (num(sn.loss_median) ? " (typically " + fmtPct(sn.loss_median, 1) + ")" : "") + " · a CONNECT_IND is lost with p ≈ <b>" + fmtPct(mp.CONNECT_IND) + "</b>" +
+      (num(mpm.CONNECT_IND) ? " (typically " + fmtPct(mpm.CONNECT_IND) + ")" : "") + "</div>");
+    const rep = sn.reply;
+    lines.push("<div>" + (num(sn.covered_s) ? "STATS cover " + esc(fmtDur(sn.covered_s)) + " of the window" : "") +
+      (num(sn.stats_age_s) && S.mode === "live" ? " · newest " + esc(fmtDur(sn.stats_age_s)) + " old" : "") +
+      (rep && num(rep.slots) ? " · reply slots " + fmtN(rep.slots) + ", " + fmtN(rep.undecoded) + " undecoded" : "") + "</div>");
+  } else if (sn.capture_state !== "stopped") lines.push('<div class="warn" style="color:var(--warn)">No sniffer STATS cover this window: capture loss is unknown.</div>');
+  const capTag = (ok, txt, why) => '<span class="tag ' + (ok ? "good" : "") + '" title="' + esc(why) + '">' + (ok ? "✓ " : "✗ ") + esc(txt) + "</span>";
+  if (S.events.length || (r.attempts || []).length) lines.push('<div class="caps">' + capTag(cap.rx_addr, "receiver addresses", "rx_addr column: who a request was sent to (else derived from the PDU bytes)") +
+    capTag(cap.direction, "data direction", "dir column: which side sent a data packet (else inferred)") +
+    capTag(cap.reply_undecoded, "reply slots", "REPLY_UNDECODED records: energy in a reply slot that did not decode") +
+    capTag(cap.bad_crc, "bad-CRC packets kept", "CRC-failed packets stored (./run.sh --all)") +
+    (cap.context_truncated ? '<span class="tag warn">context truncated</span>' : "") + "</div>");
+  $("cap").innerHTML = lines.join("");
+}
+
+// ---- rendering: attempts, peers, candidates -------------------------------------------------------
+
+function placeholder() {
+  return S.lastErr ? '<div class="empty">No data: see the error above.</div>' : '<div class="loading">Loading…</div>';
+}
+function outcomeBadge(g) {
+  const o = OUTCOME[g.outcome] || [g.outcome || "?", "acc"];
+  return '<span class="oc ' + o[1] + '" title="' + esc(g.outcome_detail || "") + '">' + esc(o[0]) + "</span>" +
+    (g.encrypted ? ' <span class="tag" title="encrypted: payloads unreadable">🔒 enc</span>' : "");
+}
+function groupRows() {
+  const r = S.res;
+  if (!r) return [];
+  const rows = [];
+  for (const a of r.attempts || []) rows.push({ gid: a.gid || "a" + a.id, kind: "a", g: a, t: a.ts });
+  for (const c of r.connections || []) rows.push({ gid: c.gid, kind: "c", g: c, t: (c.data && c.data.first_ts) || c.first_seen || c.connect_ts });
+  rows.sort((x, y) => (x.t || 0) - (y.t || 0));
+  return rows;
+}
+function groupSpan(row) {
+  const g = row.g, d = g.data || {};
+  let t0 = row.kind === "a" ? g.ts : (d.first_ts || g.first_seen);
+  let t1 = d.last_ts || t0;
+  if (row.kind === "a") {
+    const est = ((g.window_ms && num(g.window_ms[1]) ? g.window_ms[1] : 5) + 6 * (num(g.interval_ms) ? g.interval_ms : 50)) / 1000;
+    t1 = Math.max(t1, g.ts + est);
+  }
+  return [t0, t1];
+}
+function renderAttempts() {
+  const rows = groupRows();
+  const key = JSON.stringify([S.res && S.res.attempts, S.res && S.res.connections, S.scope, labels, S.addrs, !S.res && !!S.lastErr]);
+  if (key === renderAttempts.key) return;
+  renderAttempts.key = key;
+  $("attcnt").textContent = S.res ? (S.res.attempts || []).length + " requests decoded" + ((S.res.connections || []).length ? " · " + S.res.connections.length + " other connections" : "") : "";
+  if (!S.res) { $("attwrap").innerHTML = placeholder(); $("attx").hidden = true; return; }
+  if (!rows.length) { $("attwrap").innerHTML = '<div class="empty">No connection request decoded, and no connection of the followed devices, in this window.</div>'; return; }
+  const scopeGid = S.scope && S.scope.kind === "group" ? S.scope.gid : null;
+  let h = '<table><thead><tr><th>time</th><th>outcome</th><th>initiator → advertiser</th><th class="num">ch</th><th>AA</th><th class="num">interval</th>' +
+    '<th class="num" title="gap after the advert it answers (T_IFS = 150 µs)">after adv</th><th class="num" title="packets central → peripheral">C→P</th>' +
+    '<th class="num" title="packets peripheral → central">P→C</th><th class="num">duration</th><th title="the peripheral\'s advertising after the request">peripheral</th></tr></thead><tbody>';
+  for (const row of rows) {
+    const g = row.g, d = g.data || {};
+    const sel = row.gid === scopeGid;
+    let after = "", per = "";
+    if (row.kind === "a") {
+      const aa = g.after_adv || {};
+      after = aa.seen ? '<span class="' + (aa.tifs_ok === false ? "badc" : "") + '" style="color:' + (aa.tifs_ok === false ? "var(--bad)" : "inherit") + '">' +
+        (num(aa.gap_us) ? aa.gap_us.toFixed(1) + " µs" : "seen") + "</span>" : '<span class="dim" title="the advert it answers was not decoded">no advert</span>';
+      const pa = g.peripheral_adv || {};
+      if (pa.state === "kept") per = '<span class="tag bad" title="' + esc("advertised again " + fmtMs(pa.first_after_ms) + " after the request: it did not take it") + '">kept advertising</span>';
+      else if (pa.state === "stopped") per = '<span class="tag good" title="' + esc("quiet for " + fmtMs(pa.first_after_ms) + " after the request") + '">went quiet</span>';
+      else if (pa.state === "readvertised") per = '<span class="tag" title="' + esc("advertised again " + fmtMs(pa.first_after_ms) + " after the request: that does not show whether it took it (a peripheral that can hold another connection advertises while connected" +
+        (num(pa.readvertise_taken_ms) ? "; it advertised " + fmtMs(pa.readvertise_taken_ms) + " after a request it did take" : "") + ")") + '">advertised again</span>';
+    } else {
+      after = '<span class="dim">–</span>';
+      per = '<span class="tag acc" title="' + esc(START_STATE[g.start] || "") + '">' + esc(g.start === "in_window" ? "request missed" : g.start === "run_start" ? "at run start" : "before window") + "</span>";
+    }
+    h += '<tr data-gid="' + esc(row.gid) + '" class="' + (sel ? "selected" : "") + '" title="' + esc(g.outcome_detail || "") + '">' +
+      '<td class="mono">' + esc(fmtTime(row.t)) + "</td><td>" + outcomeBadge(g) + "</td><td>" + adHTML(g.init_addr, { short: true }) + ' <span class="dim">→</span> ' + adHTML(g.adv_addr, { short: true }) + "</td>" +
+      '<td class="num">' + esc(row.kind === "a" ? g.channel : "–") + '</td><td class="mono">' + esc(g.aa || "") + '</td><td class="num">' + esc(fmtMs(g.interval_ms)) + "</td>" +
+      '<td class="num">' + after + '</td><td class="num" style="color:var(--c2p)">' + fmtN(d.c2p) + '</td><td class="num" style="color:var(--p2c)">' + fmtN(d.p2c) + "</td>" +
+      '<td class="num">' + esc(num(g.duration_s) ? fmtDur(g.duration_s) : "") + "</td><td>" + per + "</td></tr>";
+  }
+  $("attwrap").innerHTML = h + "</tbody></table>";
+  const selRow = rows.find((x) => x.gid === scopeGid);
+  const ax = $("attx");
+  ax.hidden = !selRow;
+  ax.innerHTML = selRow ? '<div class="axh"><b>' + esc(fmtTime(selRow.t)) + "</b> " + outcomeBadge(selRow.g) + " " + adHTML(selRow.g.init_addr, { short: true }) +
+    ' <span class="dim">→</span> ' + adHTML(selRow.g.adv_addr, { short: true }) + ' <span class="mono dim">AA ' + esc(selRow.g.aa || "") + '</span><button data-clear="scope" aria-label="Close">×</button></div>' + groupDetail(selRow) : "";
+}
+function groupDetail(row) {
+  const g = row.g, d = g.data || {};
+  const facts = [];
+  if (row.kind === "a") {
+    facts.push("CRC init <span class=\"mono\">" + esc(g.crc_init || "") + "</span>", "latency " + esc(g.latency), "timeout " + esc(fmtMs(g.timeout_ms)),
+      "hop " + esc(g.hop), esc(g.chm_count) + " channels", "window " + (g.window_ms ? esc(fmtMs(g.window_ms[0]) + " – " + fmtMs(g.window_ms[1])) : "?") + " after the request");
+    if (num(d.first_delay_ms)) facts.push("first data " + esc(fmtMs(d.first_delay_ms)) + " after it");
+    if (num(g.rssi)) facts.push("request at " + g.rssi.toFixed(0) + " dBFS");
+  } else {
+    facts.push("CRC init <span class=\"mono\">" + esc(g.crc_init || "") + "</span>", esc(START_STATE[g.start] || ""));
+    if (num(g.connect_ts)) facts.push("request decoded " + esc(fmtDate(g.connect_ts)));
+  }
+  if (num(d.packets)) facts.push(fmtN(d.packets) + " packets (" + fmtN(d.empty) + " empty, " + fmtN(d.payload_bytes) + " payload bytes)" + (d.bad_crc ? ", " + fmtN(d.bad_crc) + " bad CRC" : ""));
+  if (d.answer_proof === "bits") facts.push("peripheral reception shown by the SN/NESN bits");
+  if (Array.isArray(d.channels) && d.channels.length) facts.push("on " + d.channels.length + " data channels");
+  let h = '<div style="margin-bottom:4px">' + esc(g.outcome_detail || "") + '</div><div class="note">' + facts.join(" · ") + "</div>";
+  const ctl = Array.isArray(g.control) ? g.control : [];
+  if (ctl.length) {
+    h += '<div class="ctl">' + ctl.map((c) => '<span class="mono dim">' + esc(fmtTime(c.ts)) + '</span><span style="color:' + (c.dir === 1 ? "var(--p2c)" : "var(--c2p)") + '">' +
+      (c.dir === 1 ? "P→C" : c.dir === 0 ? "C→P" : "?") + "</span>" + (num(c.id) ? '<button class="lnk mono" data-pkt="' + c.id + '">' + esc(c.opcode) + "</button>" : "<span>" + esc(c.opcode) + "</span>") +
+      "<span>" + esc(c.info || "") + "</span>").join("") + "</div>";
+  }
+  return h;
+}
+
+function renderPeers() {
+  const r = S.res;
+  const key = r ? JSON.stringify([r.pairs, r.reply_slots, labels, S.addrs]) : "none" + !!S.lastErr;
+  if (key === renderPeers.key) return;
+  renderPeers.key = key;
+  if (!r) { $("peers").innerHTML = placeholder(); return; }
+  const pairs = (r.pairs || []).slice().sort((a, b) => tot(b) - tot(a));
+  function tot(p) { return (p.scan_req || 0) + (p.scan_rsp || 0) + (p.connect_ind || 0) + (p.adv_direct || 0) + (p.undecoded || 0); }
+  let h = "";
+  if (pairs.length) {
+    h += '<div class="scroll tall"><table><thead><tr><th>from → to</th><th class="num">SCAN_REQ</th><th class="num">SCAN_RSP</th><th class="num">CONNECT</th>' +
+      '<th class="num" title="ADV_DIRECT_IND">direct</th><th class="num" title="reply-slot energy that did not decode (sender unknown)">undecoded</th></tr></thead><tbody>' +
+      pairs.map((p) => "<tr><td>" + adHTML(p.src, { none: "unknown sender", short: true }) + ' <span class="dim">→</span> ' + adHTML(p.dst, { short: true }) + "</td>" +
+        ["scan_req", "scan_rsp", "connect_ind", "adv_direct", "undecoded"].map((k) => '<td class="num' + (p[k] ? "" : " dim") + '"' +
+          (k === "connect_ind" && p[k] ? ' style="color:var(--warn);font-weight:600"' : k === "undecoded" && p[k] ? ' style="color:var(--bad)"' : "") + ">" + fmtN(p[k] || 0) + "</td>").join("") + "</tr>").join("") +
+      "</tbody></table></div>";
+  } else h += '<div class="empty">No scan or connection request to or from the followed devices.</div>';
+  for (const s of r.reply_slots || []) {
+    if (!s.adverts) continue;
+    const bits = [fmtN(s.adverts) + " connectable/scannable adverts" + (Array.isArray(s.adverts_channels) && s.adverts_channels.length ? " on " + s.adverts_channels.join("/") : ""),
+      fmtN(s.scan_req) + " SCAN_REQ", fmtN(s.connect_ind) + " CONNECT_IND"];
+    if (s.undecoded) bits.push('<span style="color:var(--bad)">' + fmtN(s.undecoded) + " undecoded replies</span> (" + fmtN(s.undecoded_connect_len) + " CONNECT_IND-length, " + fmtN(s.undecoded_scan_len) + " SCAN_REQ-length)");
+    if (s.bad_crc_connect) bits.push('<span style="color:var(--bad)">' + fmtN(s.bad_crc_connect) + " CONNECT_IND with a bad CRC</span>");
+    const gs = Array.isArray(s.guesses) && s.guesses.length ? '<div class="note">Damaged frames: ' + s.guesses.map((x) => esc(x.guess) + " from " + adHTML(normAddr(x.addr) || x.addr, { short: true }) + " ×" + fmtN(x.count)).join(", ") + " (addresses may carry bit errors)</div>" : "";
+    h += '<h3>Who answers ' + adHTML(s.addr, { short: true }) + "’s adverts</h3><div class=\"slot\">" + bits.join(" · ") + "</div>" + gs;
+    const comp = s.competitors || [];
+    if (comp.length) {
+      h += '<div class="scroll"><table><thead><tr><th>device</th><th class="num">SCAN_REQ</th><th class="num">CONNECT</th><th class="num" title="share of the heard adverts it answered">share</th><th></th></tr></thead><tbody>' +
+        comp.map((c) => "<tr><td>" + adHTML(c.addr) + (c.name && !colorOf(c.addr) ? "" : "") + '</td><td class="num">' + fmtN(c.scan_req) + '</td><td class="num"' + (c.connect_ind ? ' style="color:var(--warn);font-weight:600"' : "") + ">" + fmtN(c.connect_ind) +
+          '</td><td class="num">' + fmtPct(((c.scan_req || 0) + (c.connect_ind || 0)) / s.adverts) + "</td><td>" +
+          (colorOf(c.addr) ? '<span class="tag acc">followed</span>' : '<button class="fol" data-add="' + esc(c.addr) + '">+ follow</button>') + "</td></tr>").join("") + "</tbody></table></div>";
+    }
+  }
+  $("peers").innerHTML = h;
+}
+
+function renderCands() {
+  const r = S.res;
+  const key = r ? JSON.stringify([r.candidates, labels, S.addrs, S.scope]) : "none" + !!S.lastErr;
+  if (key === renderCands.key) return;
+  renderCands.key = key;
+  if (!r) { $("cands").innerHTML = placeholder(); $("candcnt").textContent = ""; return; }
+  const cs = (r.candidates || []).slice().sort((a, b) => (b.score || 0) - (a.score || 0) || a.first_seen - b.first_seen);
+  const real = cs.filter((c) => !c.alias_of);
+  $("candcnt").textContent = real.length + (cs.length > real.length ? " + " + (cs.length - real.length) + " bit-error copies" : "");
+  if (!cs.length) { $("cands").innerHTML = '<div class="empty">No connection without a decoded request started in this window.</div><div class="note">Connections found blind (no request decoded), scored by how well their start matches a followed advertiser falling silent.</div>'; return; }
+  const scopeC = S.scope && S.scope.kind === "cand" ? S.scope.aa : null;
+  const head = '<table><thead><tr><th>score</th><th>AA</th><th>first seen</th><th class="num">lasted</th><th class="num">packets</th><th>started near</th></tr></thead><tbody>';
+  const copies = cs.filter((c) => c.alias_of);
+  $("cands").innerHTML = '<div class="note" style="margin-bottom:6px">Connections found blind (no request decoded), scored by how well their start matches a followed advertiser falling silent.</div>' +
+    (real.length ? '<div class="scroll tall">' + head + real.map(candRow).join("") + "</tbody></table></div>" : '<div class="empty">None apart from bit-error copies.</div>') +
+    (copies.length ? '<details class="more"><summary>' + copies.length + " bit-error cop" + (copies.length > 1 ? "ies" : "y") +
+      " of other access addresses (not real connections)</summary><div class=\"scroll tall\">" + head + copies.map(candRow).join("") + "</tbody></table></div></details>" : "");
+  function candRow(c) {
+    const n = c.near;
+    const near = n ? adHTML(n.addr, { short: true }) + ' <span class="dim">' + esc((n.delta_s >= 0 ? "+" : "") + fmtDur(n.delta_s)) + " after it went quiet" +
+      (num(n.gap_end) && num(n.gap_start) ? " (silent " + fmtDur(n.gap_end - n.gap_start) + (n.resumed_after ? ", resumed after" : "") + ")" : "") + "</span>" : '<span class="dim">–</span>';
+    return '<tr data-cand="' + esc(c.aa) + '" class="' + (c.aa === scopeC ? "selected" : "") + '" style="' + (c.alias_of ? "opacity:.5" : "") + '">' +
+      '<td><span class="score"><i style="width:' + Math.round(Math.max(0, Math.min(1, c.score || 0)) * 100) + '%"></i></span>' + esc(num(c.score) ? c.score.toFixed(2) : "") + "</td>" +
+      '<td class="mono">' + esc(c.aa) + (c.alias_of ? ' <span class="tag" title="a bit-error copy of this AA">copy of ' + esc(c.alias_of) + "</span>" : "") + "</td>" +
+      '<td class="mono">' + esc(fmtTime(c.first_seen)) + '</td><td class="num">' + esc((c.last_seen || 0) - (c.first_seen || 0) < 1e-3 ? "–" : fmtDur(c.last_seen - c.first_seen)) +
+      '</td><td class="num" title="' + esc(num(c.rssi_max) ? "strongest " + c.rssi_max.toFixed(0) + " dBFS" : "") + '">' + fmtN(c.packets) + '</td><td class="wrap">' + near + "</td></tr>";
+  }
+}
+
+// ---- timeline -------------------------------------------------------------------------------------
+
+const TL = { cv: null, ctx: null, W: 0, H: 0, dpr: 1, lanes: [], f0: 0, f1: 1, hover: null, drag: null, pinch: null,
+             pointers: new Map(), raf: 0, items: [], phone: false };
+const AXIS_H = 20, TITLE_H = 15, LANE_GAP = 5;
+
+function curView() { return S.view ? S.view : [TL.f0, TL.f1]; }
+function tlRebuild() {
+  const r = S.res;
+  TL.lanes = [];
+  if (!r) { tlSize(); tlDraw(); return; }
+  TL.f0 = r.start; TL.f1 = r.end;
+  TL.phone = window.matchMedia("(max-width: 700px)").matches;
+  const F = new Set(S.addrs);
+  const advRows = new Map(), dirRows = {}, connEv = new Map();
+  for (const a of S.addrs) advRows.set(a, { 37: [], 38: [], 39: [], aux: [] });
+  for (const e of S.events) {
+    if (e.kind === "data") {
+      if (e.conn) { let l = connEv.get(e.conn); if (!l) connEv.set(e.conn, l = []); l.push(e); }
+      continue;
+    }
+    if (e.kind === "reply") { (dirRows.UNDECODED = dirRows.UNDECODED || []).push(e); continue; }
+    const dr = DIR_ROW[e.type];
+    if (dr) { (dirRows[dr] = dirRows[dr] || []).push(e); continue; }
+    if (e.src && F.has(e.src)) {
+      const rows = advRows.get(e.src);
+      const k = e.ch === 37 || e.ch === 38 || e.ch === 39 ? e.ch : "aux";
+      rows[k].push(e);
+    }
+  }
+  const lanes = [];
+  const sn = r.sniffer || {};
+  lanes.push({ kind: "snf", title: "Sniffer: capture loss" + (num(sn.loss_fraction) ? " " + fmtPct(sn.loss_fraction, 2) : " unknown") +
+    ((sn.runs || []).length > 1 ? " · " + sn.runs.length + " runs" : ""), h: 10, loss: sn.loss || [], runs: sn.runs || [] });
+  for (const a of S.addrs) {
+    const rows = advRows.get(a);
+    const ad = (r.adv || []).find((x) => x.addr === a);
+    const n = rows[37].length + rows[38].length + rows[39].length + rows.aux.length;
+    if (!ad && !n) continue;
+    const keys = [37, 38, 39].concat(rows.aux.length ? ["aux"] : []);
+    let t = plainName(a) + " adverts";
+    if (ad) {
+      const bc = ad.by_channel || {};
+      t += " · " + fmtN(ad.count) + (num(ad.interval_ms) ? " · every " + fmtMs(ad.interval_ms) : "") + (num(ad.heard_fraction) ? " · " + fmtPct(ad.heard_fraction) + " heard" : "") +
+        " · 37/38/39: " + [bc["37"] || 0, bc["38"] || 0, bc["39"] || 0].map(fmtN).join("/") + (ad.connectable ? "" : " · not connectable");
+    }
+    lanes.push({ kind: "adv", addr: a, color: colorOf(a), title: t, keys, rows: keys.map((k) => rows[k]), rowH: 8, h: keys.length * 8, gaps: ad ? ad.gaps || [] : [] });
+  }
+  const dkeys = DIR_ROWS.filter((k) => dirRows[k] && dirRows[k].length);
+  if (dkeys.length) lanes.push({ kind: "dir", title: "Requests and replies: " + dkeys.map((k) => DIR_NAME[k]).join(", "), keys: dkeys, rows: dkeys.map((k) => dirRows[k]), rowH: 11, h: dkeys.length * 11 });
+  // connections: one lane per attempt / connection / blind connection, packed into rows when they do not overlap
+  const items = [];
+  for (const row of groupRows()) {
+    const [t0, t1] = groupSpan(row);
+    const g = row.g, o = OUTCOME[g.outcome] || ["?", "acc"];
+    items.push({ gid: row.gid, kind: row.kind, g, t0, t1, color: OUT_COLOR[o[1]], label: (row.kind === "c" ? "conn " : "") + o[0], evs: connEv.get(row.gid) || [] });
+  }
+  for (const c of r.candidates || []) {
+    if (c.alias_of || !(c.score > 0)) continue;           // bit-error copies, and blind connections no followed device explains
+    items.push({ gid: "b" + c.aa, kind: "b", g: c, t0: c.first_seen, t1: c.last_seen, color: "#f5b041", label: "blind " + c.aa, evs: [] });
+  }
+  items.sort((a, b) => a.t0 - b.t0);
+  // one lane each while they fit; beyond 12, pack those that do not overlap into shared lanes
+  const ends = [];
+  if (items.length <= 12) items.forEach((it, i) => { it.row = i; ends.push(it.t1); });
+  else {
+    const padT = (r.end - r.start) * 0.01;
+    for (const it of items) {
+      let row = ends.findIndex((e) => e + padT <= it.t0);
+      if (row < 0) { if (ends.length < 12) { row = ends.length; ends.push(0); } else row = ends.indexOf(Math.min.apply(null, ends)); }
+      it.row = row; ends[row] = Math.max(ends[row], it.t1);
+    }
+  }
+  TL.items = items;
+  if (items.length) lanes.push({ kind: "conn", title: "Connections: " + items.length + " (bar: request → last packet · ticks: data, upper = central, lower = peripheral, white = LL control)",
+    items, rowsN: ends.length, rowH: 17, h: ends.length * 17 });
+  let y = AXIS_H;
+  for (const l of lanes) { l.top = y; l.y = y + TITLE_H; y = l.y + l.h + LANE_GAP; }
+  TL.lanes = lanes;
+  TL.contentH = y;
+  tlSize();
+  tlDraw();
+  tlNote();
+}
+function tlSize() {
+  const cv = TL.cv, wrap = $("tlwrap");
+  const W = Math.max(200, wrap.clientWidth);
+  const H = Math.max(S.res ? TL.contentH + 2 : 120, 80);
+  const dpr = window.devicePixelRatio || 1;
+  if (W !== TL.W || H !== TL.H || dpr !== TL.dpr) {
+    TL.W = W; TL.H = H; TL.dpr = dpr;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.height = H + "px";
+  }
+}
+function tlRequest() { if (!TL.raf) TL.raf = requestAnimationFrame(() => { TL.raf = 0; tlDraw(); }); }
+const X = (t, v0, k) => (t - v0) * k;
+function niceStep(span, W, px) {
+  const steps = [1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200];
+  for (const s of steps) if (s * W / span >= px) return s;
+  return 7200;
+}
+const step0 = () => (TL.phone ? 84 : 104);
+function tickLabel(t, step) {
+  if (step >= 1) return step >= 60 && Math.abs(t % 60) < 1e-6 ? hms(t).slice(0, 5) : hms(t);
+  const dg = Math.min(6, Math.ceil(-Math.log10(step) - 1e-9));
+  const s = fmtTime(t + 1e-9, dg);
+  return step < 0.01 ? s.slice(6) : s;
+}
+function tlDraw() {
+  const ctx = TL.ctx, W = TL.W, H = TL.H, dpr = TL.dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0d1015"; ctx.fillRect(0, 0, W, H);
+  const r = S.res;
+  ctx.font = "11px system-ui, -apple-system, sans-serif";
+  ctx.textBaseline = "middle";
+  if (!r) {
+    ctx.fillStyle = "#8994a1"; ctx.textAlign = "center";
+    ctx.fillText(S.lastErr ? "no data" : "loading…", W / 2, H / 2); ctx.textAlign = "left";
+    return;
+  }
+  const [v0, v1] = curView();
+  const k = W / (v1 - v0);
+  // axis
+  const step = niceStep(v1 - v0, W, step0());
+  ctx.strokeStyle = "#1c232c"; ctx.lineWidth = 1; ctx.fillStyle = "#8994a1"; ctx.textAlign = "center";
+  const t00 = Math.ceil(v0 / step) * step;
+  let lastEnd = -1e9;
+  for (let i = 0; i < 400; i++) {
+    const t = t00 + i * step;
+    if (t > v1) break;
+    const x = Math.round(X(t, v0, k)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, AXIS_H - 4); ctx.lineTo(x, H); ctx.stroke();
+    const lb = tickLabel(t, step), w = ctx.measureText(lb).width;
+    if (x - w / 2 > 2 && x + w / 2 < W - 2 && x - w / 2 > lastEnd + 8) { ctx.fillText(lb, x, 9); lastEnd = x + w / 2; }
+  }
+  ctx.textAlign = "left";
+  for (const lane of TL.lanes) { ctx.fillStyle = "#11161c"; ctx.fillRect(0, lane.y, W, lane.h); }
+  // not loaded (event limit)
+  if (S.loadedFrom !== null && S.olderMissing) {
+    const x1 = X(S.loadedFrom, v0, k);
+    if (x1 > 0) {
+      ctx.save(); ctx.fillStyle = "rgba(137,148,161,0.10)"; ctx.fillRect(0, AXIS_H, Math.min(W, x1), H - AXIS_H);
+      ctx.strokeStyle = "rgba(137,148,161,0.18)"; ctx.beginPath();
+      for (let x = -H; x < Math.min(W, x1); x += 9) { ctx.moveTo(x, H); ctx.lineTo(x + H, AXIS_H); }
+      ctx.stroke(); ctx.restore();
+      if (x1 > 150) {
+        const lb = "older packets not loaded (20 000 limit)", tw = ctx.measureText(lb).width, tx = Math.max(6, Math.min(W, x1) / 2 - tw / 2), ty = AXIS_H + (H - AXIS_H) / 2;
+        ctx.fillStyle = "rgba(13,16,21,0.85)"; ctx.fillRect(tx - 4, ty - 8, tw + 8, 16); ctx.fillStyle = "#aeb8c4"; ctx.fillText(lb, tx, ty);
+      }
+    }
+  }
+  // heavy capture loss: shade across every lane
+  const snf = TL.lanes.find((l) => l.kind === "snf");
+  if (snf) for (const l of snf.loss) {
+    if (!(l.behind || (l.fraction || 0) >= 0.05) || l.end < v0 || l.start > v1) continue;
+    const x0 = Math.max(0, X(l.start, v0, k)), x1 = Math.min(W, X(l.end, v0, k));
+    ctx.fillStyle = "rgba(255,107,107,0.08)"; ctx.fillRect(x0, AXIS_H, Math.max(1, x1 - x0), H - AXIS_H);
+  }
+  // significant advertising silences (not chance, not capture loss) also tint the lanes below them
+  const lowest = TL.lanes.length ? TL.lanes[TL.lanes.length - 1] : null;
+  for (const lane of TL.lanes) {
+    if (lane.kind !== "adv") continue;
+    for (const g of lane.gaps) {
+      const end = g.end || TL.f1;
+      if (g.loss || !(num(g.chance) && g.chance < 0.05) || end < v0 || g.start > v1) continue;
+      const x0 = Math.max(0, X(g.start, v0, k)), x1 = Math.min(W, X(end, v0, k));
+      ctx.fillStyle = "rgba(245,176,65,0.055)"; ctx.fillRect(x0, lane.top, Math.max(1, x1 - x0), lowest.y + lowest.h - lane.top);
+    }
+  }
+  for (const lane of TL.lanes) {
+    ctx.fillStyle = "#8994a1";
+    ctx.save(); ctx.beginPath(); ctx.rect(0, lane.top, W, TITLE_H); ctx.clip();
+    if (lane.color) { ctx.fillStyle = lane.color; ctx.fillRect(4, lane.top + 4, 8, 8); ctx.fillStyle = "#aeb8c4"; ctx.fillText(lane.title, 16, lane.top + 8); }
+    else { ctx.fillStyle = "#aeb8c4"; ctx.fillText(lane.title, 4, lane.top + 8); }
+    ctx.restore();
+    if (lane.kind === "snf") drawSnf(lane, v0, v1, k);
+    else if (lane.kind === "adv") drawAdv(lane, v0, v1, k);
+    else if (lane.kind === "dir") drawDir(lane, v0, v1, k);
+    else if (lane.kind === "conn") drawConn(lane, v0, v1, k);
+  }
+  // live edge
+  if (S.mode === "live" && r.end <= v1 && r.end >= v0) {
+    const x = Math.min(W - 1, X(r.end, v0, k)); ctx.fillStyle = "rgba(62,207,142,0.6)"; ctx.fillRect(x - 1, AXIS_H, 2, H - AXIS_H);
+  }
+  // selected packet
+  const se = S.sel !== null ? S.evById.get(S.sel) : null;
+  if (se && se.ts >= v0 && se.ts <= v1) {
+    const x = Math.round(X(se.ts, v0, k)) + 0.5;
+    ctx.strokeStyle = "#f5b041"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, AXIS_H - 6); ctx.lineTo(x, H); ctx.stroke();
+    ctx.fillStyle = "#f5b041"; ctx.beginPath(); ctx.moveTo(x - 5, AXIS_H - 8); ctx.lineTo(x + 5, AXIS_H - 8); ctx.lineTo(x, AXIS_H - 2); ctx.fill();
+  }
+  if (TL.hover && TL.hover.x !== undefined) {
+    ctx.strokeStyle = "rgba(217,223,231,0.25)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(TL.hover.x + 0.5, AXIS_H); ctx.lineTo(TL.hover.x + 0.5, H); ctx.stroke();
+  }
+}
+function evW(e, k) { return Math.max(1.2, ((e.len || 0) + 10) * 8e-6 * k); }
+function visible(arr, v0, v1, fn) {
+  for (let i = Math.max(0, lowerBound(arr, v0) - 1); i < arr.length; i++) { const e = arr[i]; if (e.ts > v1) break; fn(e); }
+}
+function drawSnf(lane, v0, v1, k) {
+  const ctx = TL.ctx;
+  for (const l of lane.loss) {
+    if (l.end < v0 || l.start > v1) continue;
+    const x0 = X(l.start, v0, k), x1 = X(l.end, v0, k);
+    const f = l.fraction || 0;
+    const h = Math.max(2, Math.min(lane.h, lane.h * (0.2 + Math.sqrt(f) * 1.2)));
+    ctx.fillStyle = l.behind ? "#ff6b6b" : f >= 0.05 ? "rgba(255,107,107,0.85)" : "rgba(255,107,107,0.3)";
+    ctx.fillRect(x0, lane.y + lane.h - h, Math.max(1, x1 - x0), h);
+  }
+  if (lane.runs.length > 1) for (const ru of lane.runs.slice(1)) {
+    if (!num(ru.first_ts) || ru.first_ts < v0 || ru.first_ts > v1) continue;
+    const x = X(ru.first_ts, v0, k);
+    ctx.fillStyle = "#3d9bff"; ctx.fillRect(x, lane.y - 3, 1.5, TL.H - lane.y);
+  }
+}
+function drawAdv(lane, v0, v1, k) {
+  const ctx = TL.ctx, rh = lane.rowH, W = TL.W;
+  for (const g of lane.gaps) {
+    const end = g.end || TL.f1;
+    if (end < v0 || g.start > v1) continue;
+    const x0 = Math.max(0, X(g.start, v0, k)), x1 = Math.min(W, X(end, v0, k));
+    ctx.fillStyle = g.loss ? "rgba(255,107,107,0.16)" : "rgba(245,176,65,0.18)";
+    ctx.fillRect(x0, lane.y, Math.max(1, x1 - x0), lane.h);
+    ctx.fillStyle = g.loss ? "#ff6b6b" : "#f5b041"; ctx.fillRect(x0, lane.y, Math.max(1, x1 - x0), 1.5); ctx.fillRect(x0, lane.y + lane.h - 1.5, Math.max(1, x1 - x0), 1.5);
+    if (x1 - x0 > 70) { ctx.fillStyle = "#f5b041"; ctx.save(); ctx.beginPath(); ctx.rect(x0, lane.y, x1 - x0, lane.h); ctx.clip(); ctx.fillText("silent " + fmtDur(g.duration_s || (end - g.start)), x0 + 4, lane.y + lane.h / 2); ctx.restore(); }
+  }
+  lane.keys.forEach((key, ri) => {
+    const y = lane.y + ri * rh + 1;
+    ctx.fillStyle = "#4b5663"; ctx.fillText(String(key), 2, y + rh / 2 - 0.5);
+    visible(lane.rows[ri], v0, v1, (e) => {
+      ctx.fillStyle = e.crc_ok === false ? "#ff6b6b" : lane.color;
+      ctx.fillRect(X(e.ts, v0, k), y, evW(e, k), rh - 2);
+    });
+  });
+}
+function drawDiamond(ctx, x, y, s) { ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.closePath(); }
+function drawDir(lane, v0, v1, k) {
+  const ctx = TL.ctx, rh = lane.rowH;
+  lane.keys.forEach((key, ri) => {
+    const y = lane.y + ri * rh, cy = y + rh / 2, col = DIR_COLOR[key];
+    visible(lane.rows[ri], v0, v1, (e) => {
+      const x = X(e.ts, v0, k);
+      if (key === "CONNECT") {
+        drawDiamond(ctx, x, cy, 4.5);
+        if (e.crc_ok === false) { ctx.strokeStyle = "#ff6b6b"; ctx.lineWidth = 1.5; ctx.stroke(); }
+        else { ctx.fillStyle = col; ctx.fill(); }
+      } else if (key === "UNDECODED") {
+        ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.strokeRect(x - 3, cy - 3.5, Math.max(6, evW(e, k)), 7);
+      } else {
+        ctx.fillStyle = e.crc_ok === false ? "#ff6b6b" : col; ctx.fillRect(x, y + 1.5, Math.max(1.5, evW(e, k)), rh - 3);
+      }
+    });
+    ctx.fillStyle = "rgba(17,22,28,0.8)"; ctx.fillRect(0, y, 58, rh);
+    ctx.fillStyle = col; ctx.fillText(DIR_NAME[key], 2, cy);
+  });
+}
+function drawConn(lane, v0, v1, k) {
+  const ctx = TL.ctx, rh = lane.rowH, W = TL.W;
+  const scopeGid = S.scope && S.scope.kind === "group" ? S.scope.gid : S.scope && S.scope.kind === "cand" ? "b" + S.scope.aa : null;
+  const vis = [];
+  for (const it of lane.items) {
+    if (it.t1 < v0 || it.t0 > v1) continue;
+    const y = lane.y + it.row * rh + 1, h = rh - 2;
+    const x0 = X(it.t0, v0, k), x1 = Math.max(x0 + 4, X(it.t1, v0, k));
+    const cx0 = Math.max(-2, x0), cx1 = Math.min(W + 2, x1);
+    vis.push({ it, y, h, x0, cx0, cx1 });
+    ctx.globalAlpha = cx1 - cx0 < 14 ? 0.55 : 0.16; ctx.fillStyle = it.color; ctx.fillRect(cx0, y, cx1 - cx0, h); ctx.globalAlpha = 1;
+    ctx.strokeStyle = it.color; ctx.lineWidth = it.gid === scopeGid ? 2 : 1;
+    if (it.kind !== "a") ctx.setLineDash([4, 3]);
+    ctx.strokeRect(cx0 + 0.5, y + 0.5, cx1 - cx0 - 1, h - 1); ctx.setLineDash([]);
+    const mid = y + h / 2;
+    visible(it.evs, v0, v1, (e) => {
+      const x = X(e.ts, v0, k), w = evW(e, k);
+      const ctl = e.type === "LL_CONTROL", empty = e.type === "LL_EMPTY";
+      ctx.fillStyle = e.crc_ok === false ? "#ff6b6b" : ctl ? "#ffffff" : e.dir === 1 ? "#c792ea" : "#3ecf8e";
+      ctx.globalAlpha = empty ? 0.55 : 1;
+      if (ctl) ctx.fillRect(x, y + 1, Math.max(1.5, w), h - 2);
+      else if (e.dir === 1) ctx.fillRect(x, mid + 0.5, w, empty ? h / 2 - 4 : h / 2 - 1.5);
+      else ctx.fillRect(x, empty ? mid - h / 2 + 4 : mid - h / 2 + 1.5, w, empty ? h / 2 - 4.5 : h / 2 - 2);
+      ctx.globalAlpha = 1;
+    });
+    if (it.kind === "a") { drawDiamond(ctx, x0, mid, 4.5); ctx.fillStyle = "#f5b041"; ctx.fill(); }
+  }
+  // labels in a second pass: inside a wide bar, else beside it where nothing else in the row is drawn
+  const rowEnd = {};
+  vis.forEach((v, i) => {
+    const it = v.it, mid = v.y + v.h / 2;
+    let next = W - 2;
+    for (let j = i + 1; j < vis.length; j++) if (vis[j].it.row === it.row) { next = vis[j].cx0 - 6; break; }
+    const prev = rowEnd[it.row] === undefined ? 2 : rowEnd[it.row] + 6;
+    const full = it.kind === "b" ? it.label + (it.g.near ? " · near " + plainName(it.g.near.addr) + "'s silence" : "") :
+      it.label + " · " + (it.g.aa || "") + " · " + plainName(it.g.init_addr) + " → " + plainName(it.g.adv_addr);
+    const lw = v.cx1 - Math.max(v.cx0, 0);
+    let tx = null, clip = null, txt = null;
+    for (const cand of [full, it.label]) {
+      const tw = ctx.measureText(cand).width;
+      if (lw > tw + 20) { tx = Math.max(v.cx0, 0) + 9; clip = [Math.max(v.cx0, 0), lw]; }
+      else if (v.cx1 + 6 >= prev && v.cx1 + 6 + tw < next) tx = v.cx1 + 6;
+      else if (v.cx0 - 6 - tw >= prev && v.cx0 - 6 <= next) tx = v.cx0 - 6 - tw;
+      if (tx !== null) { txt = cand; break; }
+    }
+    rowEnd[it.row] = Math.max(rowEnd[it.row] || 0, v.cx1);
+    if (tx === null) return;
+    const tw = ctx.measureText(txt).width;
+    if (!clip) rowEnd[it.row] = Math.max(rowEnd[it.row], tx + tw);
+    ctx.save();
+    if (clip) { ctx.beginPath(); ctx.rect(clip[0], v.y, clip[1], v.h); ctx.clip(); }
+    ctx.fillStyle = "rgba(13,16,21,0.8)"; ctx.fillRect(tx - 3, mid - 6, tw + 6, 12);
+    ctx.fillStyle = it.color; ctx.fillText(txt, tx, mid);
+    ctx.restore();
+  });
+}
+function nearest(arr, t, maxDt) {
+  let i = lowerBound(arr, t), best = null, bd = maxDt;
+  for (const j of [i - 2, i - 1, i, i + 1]) {
+    if (j < 0 || j >= arr.length) continue;
+    const e = arr[j], d = Math.abs(e.ts - t);
+    if (d <= bd) { bd = d; best = e; }
+  }
+  return best;
+}
+function tlHit(x, y) {
+  if (!S.res) return null;
+  const [v0, v1] = curView(), k = TL.W / (v1 - v0), t = v0 + x / k, tol = 5 / k;
+  for (const lane of TL.lanes) {
+    if (y < lane.top || y > lane.y + lane.h + 2) continue;
+    if (lane.kind === "snf") {
+      const l = lane.loss.find((l) => t >= l.start && t <= l.end);
+      return l ? { type: "loss", l } : { type: "lane", lane };
+    }
+    if (lane.kind === "adv" || lane.kind === "dir") {
+      const ri = Math.max(0, Math.min(lane.keys.length - 1, Math.floor((y - lane.y) / lane.rowH)));
+      const e = nearest(lane.rows[ri], t, tol);
+      if (e) return { type: "ev", e };
+      if (lane.kind === "adv") { const g = lane.gaps.find((g) => t >= g.start && t <= (g.end || TL.f1)); if (g) return { type: "gap", g, lane }; }
+      return { type: "lane", lane };
+    }
+    if (lane.kind === "conn") {
+      const row = Math.floor((y - lane.y) / lane.rowH);
+      const its = lane.items.filter((it) => it.row === row && t >= it.t0 - tol && t <= Math.max(it.t1, it.t0 + 4 / k) + tol);
+      for (const it of its) { const e = nearest(it.evs, t, 3 / k); if (e) return { type: "ev", e, it }; }
+      if (its.length) return { type: "bar", it: its[0] };
+      return { type: "lane", lane };
+    }
+  }
+  return null;
+}
+function evTip(e) {
+  const sd = e.src || e.dst ? (e.src ? plainName(e.src) : "?") + (e.dst ? " → " + plainName(e.dst) : "") : "";
+  return '<div class="tt">' + esc(e.type) + (e.crc_ok === false ? ' <span style="color:var(--bad)">bad CRC</span>' : "") + '</div><div class="tm">' + esc(fmtTime(e.ts, 6)) +
+    " · ch " + esc(e.ch) + (num(e.rssi) ? " · " + e.rssi.toFixed(0) + " dBFS" : "") + (num(e.len) ? " · " + e.len + " B" : "") + (num(e.gap_us) ? " · +" + e.gap_us.toFixed(1) + " µs" : "") + "</div>" +
+    (sd ? "<div>" + esc(sd) + "</div>" : "") + (e.info ? '<div class="dim">' + esc(e.info) + "</div>" : "");
+}
+function tlTip(h) {
+  if (!h) return "";
+  if (h.type === "ev") return evTip(h.e);
+  if (h.type === "gap") { const g = h.g; return '<div class="tt">' + esc(plainName(h.lane.addr)) + " silent " + esc(fmtDur(g.duration_s)) + (g.open ? " (still)" : "") + '</div><div class="tm">' +
+    esc(fmtTime(g.start)) + " → " + esc(g.end ? fmtTime(g.end) : "now") + "</div><div>" + (num(g.chance) ? esc("expected by chance: " + (g.chance < 0.001 ? "≈0" : g.chance.toFixed(3))) : "") +
+    (g.loss ? " · overlaps sniffer loss" : "") + (g.attempt ? " · a connection request at its start" : "") + "</div>"; }
+  if (h.type === "loss") { const l = h.l; return '<div class="tt">Sniffer lost ' + esc(fmtPct(l.fraction, 1)) + " of the samples" + (l.behind ? " (fell behind)" : "") + '</div><div class="tm">' +
+    esc(fmtTime(l.start, 0)) + " → " + esc(fmtTime(l.end, 0)) + " · " + esc(fmtN(l.slices_lost)) + " slices</div>"; }
+  if (h.type === "bar") {
+    const it = h.it, g = it.g;
+    if (it.kind === "b") return '<div class="tt">Blind connection ' + esc(g.aa) + '</div><div class="tm">' + esc(fmtTime(g.first_seen)) + " → " + esc(fmtTime(g.last_seen)) + " · " + fmtN(g.packets) + " packets · score " + esc(num(g.score) ? g.score.toFixed(2) : "") + "</div>";
+    return '<div class="tt">' + esc(plainName(g.init_addr)) + " → " + esc(plainName(g.adv_addr)) + ": " + esc((OUTCOME[g.outcome] || [g.outcome])[0]) + '</div><div class="tm">AA ' + esc(g.aa) +
+      " · " + esc(fmtTime(it.t0)) + " · C→P " + fmtN(g.data && g.data.c2p) + " · P→C " + fmtN(g.data && g.data.p2c) + "</div><div>" + esc(g.outcome_detail || "") + "</div>";
+  }
+  return "";
+}
+function showTip(x, y, html) {
+  const tip = $("tip");
+  if (!html) { tip.hidden = true; return; }
+  tip.innerHTML = html; tip.hidden = false;
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let lx = x + 14, ly = y + 14;
+  if (lx + tw > TL.W - 4) lx = Math.max(4, x - tw - 14);
+  if (ly + th > TL.H + 40) ly = Math.max(0, y - th - 10);
+  tip.style.left = lx + "px"; tip.style.top = ly + "px";
+}
+function setView(a, b) {
+  const full = TL.f1 - TL.f0;
+  if (!(full > 0)) return;
+  let span = Math.max(2e-4, Math.min(full, b - a));
+  if (span >= full * 0.999) { S.view = null; }
+  else {
+    let c = (a + b) / 2, s0 = c - span / 2;
+    s0 = Math.max(TL.f0, Math.min(TL.f1 - span, s0));
+    S.view = [s0, s0 + span];
+  }
+  tlRequest();
+  viewChanged();
+}
+let viewTimer = 0;
+function viewChanged() { clearTimeout(viewTimer); viewTimer = setTimeout(() => { renderScopes(); renderPackets(); tlNote(); }, 120); }
+function zoomAt(t, f) { const [v0, v1] = curView(); setView(t - (t - v0) * f, t + (v1 - t) * f); }
+function zoomTo(t0, t1, padFrac) {
+  const p = (t1 - t0) * (padFrac === undefined ? 0.15 : padFrac) + 1e-3;
+  setView(t0 - p, t1 + p);
+}
+function tlNote() {
+  const r = S.res;
+  if (!r) { $("tlnote").textContent = ""; return; }
+  const [v0, v1] = curView();
+  let s = S.view ? "Zoomed: " + fmtTime(v0) + " → " + fmtTime(v1) + " (" + fmtDur(v1 - v0) + "); the packet list shows this range." : "Scroll or pinch to zoom, drag to pan, double-click to reset; click a mark to select its packet.";
+  if (!S.events.length) s = "No packet of the followed devices in this window." + (lastHeard() !== null ? " Use “Jump to last heard” above." : "");
+  $("tlnote").textContent = s;
+}
+function tlInit() {
+  const cv = $("tl");
+  TL.cv = cv; TL.ctx = cv.getContext("2d");
+  const pos = (ev) => { const b = cv.getBoundingClientRect(); return { x: ev.clientX - b.left, y: ev.clientY - b.top }; };
+  cv.addEventListener("wheel", (ev) => {
+    if (!S.res) return;
+    ev.preventDefault();
+    const p = pos(ev), [v0, v1] = curView();
+    const dx = ev.deltaMode === 1 ? ev.deltaX * 16 : ev.deltaX, dy = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaY;
+    if (Math.abs(dx) > Math.abs(dy)) { const dt = dx / TL.W * (v1 - v0); setView(v0 + dt, v1 + dt); }
+    else zoomAt(v0 + p.x / TL.W * (v1 - v0), Math.exp(dy * 0.0018));
+  }, { passive: false });
+  cv.addEventListener("pointerdown", (ev) => {
+    if (!S.res) return;
+    const p = pos(ev);
+    TL.pointers.set(ev.pointerId, p);
+    try { cv.setPointerCapture(ev.pointerId); } catch (e) { /* */ }
+    if (TL.pointers.size === 1) TL.drag = { x0: p.x, y0: p.y, v: curView(), moved: false };
+    else if (TL.pointers.size === 2) {
+      const [a, b] = Array.from(TL.pointers.values());
+      TL.pinch = { d0: Math.max(10, Math.abs(a.x - b.x)), cx: (a.x + b.x) / 2, v: curView() }; TL.drag = null;
+    }
+  });
+  cv.addEventListener("pointermove", (ev) => {
+    const p = pos(ev);
+    if (TL.pointers.has(ev.pointerId)) TL.pointers.set(ev.pointerId, p);
+    if (TL.pinch && TL.pointers.size === 2) {
+      const [a, b] = Array.from(TL.pointers.values());
+      const d = Math.max(10, Math.abs(a.x - b.x)), [v0, v1] = TL.pinch.v, f = TL.pinch.d0 / d;
+      const tc = v0 + TL.pinch.cx / TL.W * (v1 - v0);
+      setView(tc - (tc - v0) * f, tc + (v1 - tc) * f);
+      return;
+    }
+    if (TL.drag) {
+      const dx = p.x - TL.drag.x0;
+      if (Math.abs(dx) > 4 || Math.abs(p.y - TL.drag.y0) > 6) TL.drag.moved = true;
+      if (TL.drag.moved) {
+        cv.classList.add("drag");
+        const [v0, v1] = TL.drag.v, dt = -dx / TL.W * (v1 - v0);
+        if (S.view || Math.abs(dx) > 4) { if (S.view) setView(v0 + dt, v1 + dt); }
+        showTip(0, 0, ""); return;
+      }
+    }
+    if (ev.pointerType === "mouse") { TL.hover = { x: p.x }; const h = tlHit(p.x, p.y); showTip(p.x, p.y, tlTip(h)); cv.style.cursor = h && (h.type === "ev" || h.type === "bar") ? "pointer" : ""; tlRequest(); }
+  });
+  const end = (ev) => {
+    const p = pos(ev);
+    const wasClick = TL.drag && !TL.drag.moved && TL.pointers.size === 1;
+    TL.pointers.delete(ev.pointerId);
+    if (TL.pointers.size < 2) TL.pinch = null;
+    cv.classList.remove("drag");
+    if (wasClick && ev.type === "pointerup") {
+      const h = tlHit(p.x, p.y);
+      if (h && h.type === "ev") { selectPacket(h.e.id, { scroll: true }); if (ev.pointerType !== "mouse") showTip(p.x, p.y, tlTip(h)); }
+      else if (h && h.type === "bar") { if (h.it.kind === "b") selectCand(h.it.g.aa); else selectGroup(h.it.gid, false); }
+      else if (h && h.type === "gap") zoomTo(h.g.start, h.g.end || TL.f1, 0.3);
+      else if (ev.pointerType !== "mouse") showTip(0, 0, "");
+    }
+    TL.drag = null;
+  };
+  cv.addEventListener("pointerup", end);
+  cv.addEventListener("pointercancel", end);
+  cv.addEventListener("pointerleave", () => { if (!TL.drag) { TL.hover = null; showTip(0, 0, ""); tlRequest(); } });
+  cv.addEventListener("dblclick", () => setView(-Infinity, Infinity));
+  $("zin").onclick = () => { const [a, b] = curView(); zoomAt((a + b) / 2, 0.5); };
+  $("zout").onclick = () => { const [a, b] = curView(); zoomAt((a + b) / 2, 2); };
+  $("zreset").onclick = () => setView(-Infinity, Infinity);
+}
+
+// ---- packets --------------------------------------------------------------------------------------
+
+const P = { list: [], cats: new Set(LS.get("follow.cats", CATS.map((c) => c[0]))), q: "", top: true, rowH: 22 };
+function catOf(e) {
+  if (e.kind === "reply") return "undecoded";
+  if (e.kind === "data") return e.type === "LL_CONTROL" ? "control" : e.type === "LL_EMPTY" ? "empty" : "data";
+  if (SCAN_T[e.type]) return "scan";
+  if (CONN_T[e.type]) return "connect";
+  return "adv";
+}
+function inScope(e) {
+  const sc = S.scope;
+  if (!sc) return true;
+  if (sc.kind === "group") return e.conn === sc.gid || (sc.id !== undefined && e.attempt === sc.id && !e.conn);
+  if (sc.kind === "ids") return sc.ids.has(e.id);
+  return true;
+}
+function matches(e, q) {
+  if (!q) return true;
+  const h = (e._h || (e._h = [e.type, e.src, e.dst, e.aa, e.info, "#" + e.id, "ch" + e.ch].join(" ").toLowerCase()));
+  if (h.indexOf(q) >= 0) return true;
+  const l1 = labelOf(e.src), l2 = labelOf(e.dst);
+  if ((l1 && l1.toLowerCase().indexOf(q) >= 0) || (l2 && l2.toLowerCase().indexOf(q) >= 0)) return true;
+  const qa = q.replace(/[^0-9a-f]/g, "");
+  return qa.length >= 4 && qa.length === q.replace(/[:\-\s]/g, "").length && h.replace(/:/g, "").indexOf(qa) >= 0;
+}
+function refilter() {
+  const [r0, r1] = S.view || [-Infinity, Infinity];
+  const q = P.q.trim().toLowerCase();
+  const counts = {};
+  for (const c of CATS) counts[c[0]] = 0;
+  const out = [];
+  const evs = S.events;
+  const i0 = S.view ? lowerBound(evs, r0) : 0;
+  for (let i = i0; i < evs.length; i++) {
+    const e = evs[i];
+    if (e.ts > r1) break;
+    if (!inScope(e)) continue;
+    if (q && !matches(e, q)) continue;
+    const c = e._c || (e._c = catOf(e));
+    counts[c]++;
+    if (P.cats.has(c) || (c !== "undecoded" && e.crc_ok === false && P.cats.has("undecoded"))) out.push(e);
+  }
+  P.list = out; P.counts = counts;
+}
+function renderTypeFilters() {
+  $("tfil").innerHTML = CATS.map(([k, l]) => '<button data-cat="' + k + '" class="' + (P.cats.has(k) ? "on" : "") + '" aria-pressed="' + P.cats.has(k) + '">' + l +
+    "<i>" + fmtN((P.counts || {})[k] || 0) + "</i></button>").join("");
+}
+function renderScopes() {
+  const parts = [];
+  if (S.view) parts.push('<span class="scope">time ' + esc(fmtTime(S.view[0])) + " → " + esc(fmtTime(S.view[1])) + '<button data-clear="view" title="Show the whole window" aria-label="Clear the time range">×</button></span>');
+  const sc = S.scope;
+  if (sc && sc.kind === "group") parts.push('<span class="scope">' + esc(sc.label) + '<button data-clear="scope" aria-label="Clear">×</button></span>');
+  if (sc && sc.kind === "ids") parts.push('<span class="scope">' + esc(sc.label) + '<button data-clear="scope" aria-label="Clear">×</button></span>');
+  if (sc && sc.kind === "cand") parts.push('<span class="scope">' + esc(sc.label) + '<button data-clear="scope" aria-label="Clear">×</button></span>');
+  $("scopes").innerHTML = parts.join("");
+}
+function renderPackets(dataChanged) {
+  const pv = $("pv");
+  const wasBottom = pv.scrollTop + pv.clientHeight >= pv.scrollHeight - P.rowH * 2;
+  refilter();
+  renderTypeFilters();
+  renderScopes();
+  P.rowH = window.matchMedia("(max-width: 700px)").matches ? 40 : 22;
+  const n = P.list.length;
+  const tot = S.events.length;
+  $("pktcnt").textContent = S.res ? fmtN(n) + (n !== tot ? " of " + fmtN(tot) : "") + " shown" +
+    (S.olderMissing ? " · the newest " + fmtN(tot) + " of the window are loaded" : "") : "";
+  $("pspace").style.height = n * P.rowH + "px";
+  const pe = $("pempty");
+  if (!S.res) { pe.hidden = false; pe.textContent = S.lastErr ? "No data." : "Loading…"; }
+  else if (!tot) { pe.hidden = false; pe.textContent = "No packet of the followed devices in this window."; }
+  else if (!n) { pe.hidden = false; pe.textContent = "No packet matches the filters."; }
+  else pe.hidden = true;
+  if (P.top) { pv.scrollTop = S.mode === "live" ? pv.scrollHeight : 0; if (n) P.top = false; }
+  else if (dataChanged && wasBottom && S.mode === "live" && !S.paused) pv.scrollTop = pv.scrollHeight;
+  renderRows();
+}
+function sdHTML(e) {
+  if (e.kind === "data") {
+    const arrow = e.dir === 1 ? '<span class="dir1">◂</span>' : '<span class="dir0">▸</span>';
+    return adHTML(e.src, { short: true, follow: false }) + " " + arrow + " " + adHTML(e.dst, { short: true, follow: false });
+  }
+  if (e.kind === "reply") return '<span class="dim">?</span> → ' + adHTML(e.dst, { short: true, follow: false });
+  return adHTML(e.src, { short: true, follow: false }) + (e.dst ? ' <span class="dim">→</span> ' + adHTML(e.dst, { short: true, follow: false }) : "");
+}
+function fmtDelta(dt) {
+  if (!num(dt)) return "";
+  if (dt < 0) return "−" + fmtDur(-dt);
+  return "+" + fmtDur(dt);
+}
+function renderRows() {
+  const pv = $("pv"), rh = P.rowH, n = P.list.length;
+  const first = Math.max(0, Math.floor(pv.scrollTop / rh) - 8);
+  const last = Math.min(n, Math.ceil((pv.scrollTop + pv.clientHeight) / rh) + 8);
+  let h = "";
+  for (let i = first; i < last; i++) {
+    const e = P.list[i], prev = i > 0 ? P.list[i - 1] : null;
+    const c = e._c || (e._c = catOf(e));
+    h += '<div class="pr k-' + c + (e.crc_ok === false ? " bad" : "") + (e.id === S.sel ? " sel" : "") + '" data-id="' + e.id + '" role="row">' +
+      '<span class="t mono">' + esc(fmtTime(e.ts)) + '</span><span class="d mono">' + esc(prev ? fmtDelta(e.ts - prev.ts) : "") + '</span><span class="ch mono">' + esc(e.ch) + "</span>" +
+      '<span class="sd">' + sdHTML(e) + '</span><span class="ty">' + esc(e.type) + (e.crc_ok === false && e.kind !== "reply" ? " ✗" : "") + "</span>" +
+      '<span class="l mono">' + esc(e.len) + '</span><span class="r mono">' + esc(num(e.rssi) ? e.rssi.toFixed(0) : "") + "</span>" +
+      '<span class="i" title="' + esc(e.info) + '">' + esc(e.info) + (num(e.gap_us) ? '<span class="ifs">+' + e.gap_us.toFixed(1) + " µs</span>" : "") + "</span></div>";
+  }
+  const pr = $("prows");
+  pr.style.transform = "translateY(" + first * rh + "px)";
+  pr.innerHTML = h;
+  const pvEl = $("pv");
+  $("newest").hidden = !(S.mode === "live" && n && pvEl.scrollTop + pvEl.clientHeight < pvEl.scrollHeight - rh * 3);
+}
+
+function selectPacket(id, opts) {
+  S.sel = id;
+  const i = P.list.findIndex((e) => e.id === id);
+  if (i >= 0 && opts && opts.scroll) {
+    const pv = $("pv"), y = i * P.rowH;
+    if (y < pv.scrollTop || y > pv.scrollTop + pv.clientHeight - P.rowH) pv.scrollTop = Math.max(0, y - pv.clientHeight / 2);
+  }
+  renderRows(); tlRequest();
+  loadDetail(id, i < 0 && S.evById.has(id));
+}
+const DT = { cache: new Map(), seq: 0, id: null };
+function hideDetail(keep) {
+  if (keep && DT.id !== null) { const d = DT.cache.get(DT.id); if (d) { renderDetail(d); return; } }
+  DT.id = null;
+  $("detail").innerHTML = '<div class="note">Click a packet (here or on the timeline) for its decoded fields and bytes.</div>';
+}
+async function loadDetail(id, hidden) {
+  DT.id = id;
+  const seq = ++DT.seq;
+  const det = $("detail");
+  if (DT.cache.has(id)) { renderDetail(DT.cache.get(id), hidden); return; }
+  det.innerHTML = '<div class="loading">Loading packet #' + esc(id) + "…</div>";
+  try {
+    const r = await fetch("/api/follow/packet?id=" + encodeURIComponent(id), { cache: "no-store" });
+    const body = await r.json();
+    if (seq !== DT.seq) return;
+    if (!r.ok || body.error) { det.innerHTML = '<div class="empty">Packet #' + esc(id) + ": " + esc(body.error || "HTTP " + r.status) + "</div>"; return; }
+    if (DT.cache.size > 200) DT.cache.clear();
+    DT.cache.set(id, body);
+    renderDetail(body, hidden);
+  } catch (e) {
+    if (seq === DT.seq) det.innerHTML = '<div class="empty">Packet #' + esc(id) + ": could not load (" + esc(e.message) + ")</div>";
+  }
+}
+function hexPretty(h) { return h ? String(h).replace(/[^0-9a-fA-F]/g, "").replace(/(..)/g, "$1 ").trim() : ""; }
+function fmtVal(v) { return v !== null && typeof v === "object" ? JSON.stringify(v) : String(v); }
+function renderDetail(d, hidden) {
+  const ev = S.evById.get(d.id);
+  const rows = (Array.isArray(d.decoded) ? d.decoded : []).map((f) => "<tr><th>" + esc(f.field) + "</th><td>" + esc(fmtVal(f.value)) + "</td></tr>").join("");
+  const skip = { decoded: 1, pdu: 1, raw: 1 };
+  const all = Object.keys(d).filter((k) => !skip[k]).map((k) => "<tr><th>" + esc(k) + "</th><td>" + esc(d[k] === null ? "null" : fmtVal(d[k])) + "</td></tr>").join("");
+  const sub = [fmtDate(d.ts) + "." + String(Math.floor(((d.ts || 0) % 1) * 1e6)).padStart(6, "0"), "ch " + d.channel, num(d.rssi_dbfs) ? d.rssi_dbfs.toFixed(1) + " dBFS" : "",
+    num(d.cfo_khz) ? "CFO " + d.cfo_khz.toFixed(1) + " kHz" : "", num(d.duration_us) ? d.duration_us.toFixed(0) + " µs on air" : "", d.crc_ok ? "CRC ok" : "CRC failed",
+    d.stream_run !== null && d.stream_run !== undefined ? "run " + d.stream_run : ""].filter(Boolean);
+  $("detail").innerHTML = '<div class="dh"><b>#' + esc(d.id) + " " + esc(d.pdu_type || "") + "</b>" +
+    (ev ? '<button data-showev="' + esc(d.id) + '" title="Zoom the timeline around this packet">⌖ timeline</button>' : "") +
+    '<button data-copy="json">Copy JSON</button><button data-close="1" aria-label="Close">×</button></div>' +
+    '<div class="dsub">' + esc(sub.join(" · ")) + "</div>" +
+    (hidden ? '<div class="note" style="color:var(--warn)">Hidden from the list by the current filters.</div>' : "") +
+    (ev && (ev.src || ev.dst) ? '<div style="margin-bottom:6px">' + sdHTML(ev) + "</div>" : "") +
+    (rows ? '<table class="kv">' + rows + "</table>" : '<div class="note">No decoded fields.</div>') +
+    (d.pdu ? '<div class="hl">PDU (header + payload, dewhitened)<button data-copy="pdu">copy</button></div><pre class="hex">' + esc(hexPretty(d.pdu)) + "</pre>" : "") +
+    (d.raw ? '<div class="hl">on air (after the AA, whitened, with CRC)<button data-copy="raw">copy</button></div><pre class="hex">' + esc(hexPretty(d.raw)) + "</pre>" : "") +
+    '<details><summary class="note">Every column</summary><table class="kv">' + all + "</table></details>";
+}
+function copyText(text) {
+  const ok = () => toast("Copied");
+  if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(ok, () => fallback()); return; }
+  fallback();
+  function fallback() {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    let done = false;
+    try { done = document.execCommand("copy"); } catch (e) { /* */ }
+    ta.remove();
+    toast(done ? "Copied" : "Copy failed: select the text by hand");
+  }
+}
+let toastT = 0;
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2600); }
+
+// ---- selections -----------------------------------------------------------------------------------
+
+function selectGroup(gid, toggle) {
+  if (toggle && S.scope && S.scope.kind === "group" && S.scope.gid === gid) { S.scope = null; renderAttempts(); viewChanged(); tlRequest(); return; }
+  const row = groupRows().find((x) => x.gid === gid);
+  if (!row) return;
+  const g = row.g;
+  S.scope = { kind: "group", gid, id: row.kind === "a" ? g.id : undefined,
+    label: (row.kind === "a" ? "request " : "connection ") + (g.aa || "") + " · " + plainName(g.init_addr) + " → " + plainName(g.adv_addr) };
+  const [t0, t1] = groupSpan(row);
+  renderAttempts();
+  zoomTo(t0, t1, 0.08);
+  renderPackets();
+  P.top = false;
+  const pv = $("pv"); pv.scrollTop = 0; renderRows();
+}
+function selectCand(aa) {
+  const c = ((S.res && S.res.candidates) || []).find((x) => x.aa === aa);
+  if (!c) return;
+  S.scope = { kind: "cand", aa, label: "blind connection " + aa + " (its packets are not listed)" };
+  renderCands();
+  const n = c.near;
+  const t0 = n && num(n.gap_start) ? Math.min(n.gap_start, c.first_seen) : c.first_seen;
+  const t1 = n && num(n.gap_end) ? Math.max(n.gap_end, c.last_seen) : c.last_seen;
+  zoomTo(t0, t1, 0.15);
+}
+function selectIds(ids, label) {
+  const set = new Set(ids);
+  S.scope = { kind: "ids", ids: set, label: label || (ids.length + " packets") };
+  const evs = ids.map((i) => S.evById.get(i)).filter(Boolean);
+  if (evs.length) {
+    const t0 = Math.min.apply(null, evs.map((e) => e.ts)), t1 = Math.max.apply(null, evs.map((e) => e.ts));
+    if (t1 - t0 < 0.5) zoomTo(t0 - 0.25, t1 + 0.25, 0); else zoomTo(t0, t1, 0.1);
+    renderPackets();
+    selectPacket(evs[0].id, { scroll: true });
+  } else {
+    renderPackets();
+    if (ids.length) loadDetail(ids[0], true);
+    toast("Those packets are not in the loaded list (other filters, or outside the loaded packets).");
+  }
+  renderAttempts();
+  $("pktsec").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ---- render all, events -----------------------------------------------------------------------------
+
+function renderAll() {
+  renderChips(); renderStatus(); renderWindowBar(); renderBanner();
+  const has = S.addrs.length > 0;
+  $("intro").hidden = has;
+  for (const id of ["diag", "tlsec", "attsec", "peersec", "candsec", "pktsec"]) $(id).hidden = !has;
+  $("main").classList.toggle("stale", has && isStale());
+  $("main").classList.toggle("capstale", has && !!captureStale());
+  if (!has) { renderRecent(); return; }
+  renderDiag(); tlRebuild(); renderAttempts(); renderPeers(); renderCands(); renderPackets(true);
+}
+
+function onClick(ev) {
+  const t = ev.target.closest("button, a, tr[data-gid], tr[data-cand], .pr[data-id]");
+  if (!t) return;
+  const ds = t.dataset;
+  if (ds.add) { ev.preventDefault(); addAddrs([ds.add]); return; }
+  if (ds.rm) { removeAddr(ds.rm); return; }
+  if (ds.swap) { swapAddr(ds.swap); return; }
+  if (ds.label) { editLabel(ds.label, t); return; }
+  if (ds.pick !== undefined && t.closest("#sugg")) { pickSugg(+ds.pick); return; }
+  if (ds.set) {
+    const addrs = ds.set.split(",").map(normAddr).filter(Boolean);
+    $("recent").open = false;
+    if (addrs.length) { S.addrs = addrs.slice(0, MAX_ADDRS); selectionChanged(true); }
+    return;
+  }
+  if (ds.span) { S.mode = "live"; S.span = +ds.span; S.paused = false; $("fixedform").dataset.open = ""; selectionChanged(true); return; }
+  if (ds.zoom) {
+    const ts = +ds.zoom;
+    if (!isFinite(ts)) return;
+    if (S.res && (ts < S.res.start || ts > S.res.end)) {        // outside the window (e.g. "last heard"): go there
+      const span = curSpan();
+      S.mode = "fixed"; S.start = ts - span / 2; S.end = ts + span / 2; S.paused = false;
+      selectionChanged(true);
+      return;
+    }
+    const w = Math.min(10, (TL.f1 - TL.f0) / 20);
+    zoomTo(ts - w, ts + w, 0);
+    $("tlsec").scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  if (ds.ids) { selectIds(ds.ids.split(",").map(Number).filter(isFinite)); return; }
+  if (ds.pkt) { selectPacket(+ds.pkt, { scroll: true }); return; }
+  if (ds.showev) { const e = S.evById.get(+ds.showev); if (e) { zoomTo(e.ts - 0.003, e.ts + 0.003, 0); $("tlsec").scrollIntoView({ behavior: "smooth", block: "start" }); } return; }
+  if (ds.copy) {
+    const d = DT.cache.get(DT.id);
+    if (!d) return;
+    copyText(ds.copy === "json" ? JSON.stringify(d, null, 1) : ds.copy === "pdu" ? d.pdu || "" : d.raw || "");
+    return;
+  }
+  if (ds.close) { S.sel = null; hideDetail(); renderRows(); tlRequest(); return; }
+  if (ds.clear === "view") { setView(-Infinity, Infinity); return; }
+  if (ds.clear === "scope") { S.scope = null; renderAttempts(); renderCands(); renderPackets(); tlRequest(); return; }
+  if (ds.cat) {
+    if (P.cats.has(ds.cat)) P.cats.delete(ds.cat); else P.cats.add(ds.cat);
+    LS.set("follow.cats", Array.from(P.cats));
+    renderPackets(); return;
+  }
+  if (ds.retry) { S.lastErr = null; renderBanner(); load(true); return; }
+  if (ds.dismiss) { S.urlNote = ""; renderBanner(); return; }
+  if (ds.shrink) { const e = S.end; S.start = e - 600; selectionChanged(true); return; }
+  if (ds.gid && t.tagName === "TR") { if (ev.target.closest("button")) return; selectGroup(ds.gid, true); return; }
+  if (ds.cand && t.tagName === "TR") { if (ev.target.closest("button")) return; selectCand(ds.cand); return; }
+  if (ds.id && t.classList.contains("pr")) { selectPacket(+ds.id); }
+}
+
+function init() {
+  readUrl();
+  tlInit();
+  document.addEventListener("click", onClick);
+  const inp = $("addin");
+  $("chips").addEventListener("click", (ev) => { if (ev.target === $("chips")) inp.focus(); });
+  inp.addEventListener("input", () => { const v = inp.value; if (normAddr(v.trim())) hideSugg(); else suggest(v); });
+  inp.addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowDown" && SG.items.length) { ev.preventDefault(); SG.act = (SG.act + 1) % SG.items.length; renderSugg(); }
+    else if (ev.key === "ArrowUp" && SG.items.length) { ev.preventDefault(); SG.act = (SG.act - 1 + SG.items.length) % SG.items.length; renderSugg(); }
+    else if (ev.key === "Enter" || ev.key === "," || (ev.key === " " && normAddr(inp.value.trim()))) {
+      if (ev.key === "Enter" || normAddr(inp.value.trim())) { ev.preventDefault(); commitInput(); }
+    } else if (ev.key === "Escape") hideSugg();
+    else if (ev.key === "Backspace" && !inp.value && S.addrs.length) { removeAddr(S.addrs[S.addrs.length - 1]); }
+  });
+  inp.addEventListener("paste", (ev) => {
+    const text = (ev.clipboardData || window.clipboardData).getData("text");
+    const found = extractAddrs(text);
+    if (found.length) { ev.preventDefault(); addAddrs(found); }
+  });
+  inp.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== inp) hideSugg(); }, 200));
+  $("pause").onclick = () => {
+    S.paused = !S.paused;
+    if (S.paused) { clearTimeout(S.timer); S.timer = null; } else load(Date.now() - S.lastOk > 300000);
+    renderAll();
+  };
+  $("fixedbtn").onclick = () => { const ff = $("fixedform"); ff.dataset.open = "1"; ff.dataset.dirty = ""; ff.hidden = false; renderWindowBar(); $("from").focus(); };
+  for (const id of ["from", "to"]) $(id).addEventListener("input", () => { $("fixedform").dataset.dirty = "1"; });
+  $("apply").onclick = () => {
+    const a = fromLocalInput($("from").value), b = fromLocalInput($("to").value);
+    if (!isFinite(a) || !isFinite(b) || b <= a) { toast("Choose a start before the end."); return; }
+    if (b - a > MAX_SPAN) { toast("At most 6 hours."); return; }
+    S.mode = "fixed"; S.start = a; S.end = b; S.paused = false;
+    $("fixedform").dataset.dirty = "";
+    selectionChanged(true);
+  };
+  $("golive").onclick = () => { S.mode = "live"; S.span = Math.min(S.span, 3600); $("fixedform").dataset.open = ""; $("fixedform").dataset.dirty = ""; selectionChanged(true); };
+  $("jump").onclick = () => {
+    const lh = lastHeard();
+    if (lh === null) return;
+    const span = curSpan(), end = lh + Math.min(60, span * 0.1);
+    S.mode = "fixed"; S.start = end - span; S.end = end; S.paused = false;
+    $("fixedform").dataset.dirty = "";
+    selectionChanged(true);
+  };
+  $("others").onclick = () => {
+    const eff = S.res ? !!S.res.others : (S.others !== null ? S.others : S.addrs.length === 1);
+    S.others = !eff;
+    selectionChanged(true);
+  };
+  $("pq").addEventListener("input", () => { P.q = $("pq").value; clearTimeout(P.qt); P.qt = setTimeout(() => renderPackets(), 120); });
+  const pv = $("pv");
+  pv.addEventListener("scroll", () => { if (!P.raf) P.raf = requestAnimationFrame(() => { P.raf = 0; renderRows(); }); }, { passive: true });
+  pv.addEventListener("keydown", (ev) => {
+    if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+    ev.preventDefault();
+    const i = P.list.findIndex((e) => e.id === S.sel);
+    const j = Math.max(0, Math.min(P.list.length - 1, i < 0 ? 0 : i + (ev.key === "ArrowDown" ? 1 : -1)));
+    if (P.list[j]) selectPacket(P.list[j].id, { scroll: true });
+  });
+  $("newest").onclick = () => { pv.scrollTop = pv.scrollHeight; renderRows(); };
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") { $("recent").open = false; $("export").open = false; } });
+  document.addEventListener("click", (ev) => {
+    for (const id of ["recent", "export"]) { const m = $(id); if (m.open && !m.contains(ev.target)) m.open = false; }
+  }, true);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { clearTimeout(S.timer); S.timer = null; }
+    else if (S.addrs.length && S.mode === "live" && !S.paused && !S.inflight) load(Date.now() - S.lastFull > 300000);
+  });
+  window.addEventListener("popstate", () => { readUrl(); selectionChanged(false); });
+  let rt = 0;
+  window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { tlRebuild(); renderPackets(); }, 120); });
+  setInterval(() => { if (S.addrs.length) { renderStatus(); $("main").classList.toggle("stale", isStale()); $("main").classList.toggle("capstale", !!captureStale()); if (S.lastErr || captureStale()) renderBanner(); } }, 1000);
+  renderRecent();
+  selectionChanged(false);
+}
+// read-only view of the state for tests and debugging in the console
+window.followDebug = (full) => ({ addrs: S.addrs.slice(), mode: S.mode, paused: S.paused, events: S.events.length, afterId: S.afterId,
+  olderMissing: S.olderMissing, view: S.view, scope: S.scope && S.scope.kind, sel: S.sel, listed: P.list.length, lastErr: S.lastErr,
+  lastDur: S.lastDur, stale: isStale(), capStale: !!captureStale(), hasRes: !!S.res, lanes: TL.lanes.map((l) => l.kind), polls: S.polls || 0,
+  start: S.res && S.res.start, end: S.res && S.res.end, ids: full ? S.events.map((e) => e.id + ":" + (e.conn || "") + ":" + (e.attempt || "")) : undefined });
+init();
+})();
+</script>
+</body>
+</html>

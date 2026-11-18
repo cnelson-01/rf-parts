@@ -12,6 +12,7 @@ and no packet at all on a channel the truth has no packet on at that time (false
 
   /usr/bin/python3 tests/test_e2e.py [--rate 160e6] [--lo 2441e6] [--duration 0.1] [--keep DIR]
       [--seed N] [--dc 0.01] [--threads N] [-v]
+Binary: $W1700K_BLE_BUILD/w1700k-ble (default build/).
 Runs two scenarios by default (160 Msps, LO 2441 MHz with DC; 320 Msps, LO 2441.999999 MHz).
 Temporary files go to $TMPDIR and are deleted (files <= 0.25 s: memory safety).
 """

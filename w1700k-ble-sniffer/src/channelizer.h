@@ -8,6 +8,8 @@
 //    so every bin comes out at 4 Msps. Prototype: Kaiser-windowed sinc, K = 12 taps per branch,
 //    -6 dB at +-1 MHz, flat to +-0.7 MHz, >= 60 dB down beyond +-1.3 MHz (the next BLE channel).
 // 3. Only the wanted BLE channels are kept.
+// Optional classic_grid: 1 MHz spacing, 79 centres, 4x oversampling; default prototype length
+// and 4 Msps output rate are unchanged. Even centres are also used by BLE.
 //
 // Frames: channel output sample m (run-relative) is computed from wideband samples up to m * D;
 // it represents wideband instant m * D - group_delay(). A block of nframes frames starting at frame
@@ -36,10 +38,11 @@ struct ChannelizerConfig {
 	double sample_rate = 160e6;	// must be a multiple of 4 MHz
 	double lo_hz = 2441e6;
 	bool dc_block = true;
+	bool classic_grid = false;	// 79 centres, 2402 + k MHz; output still 4 Msps
 	int taps_per_branch = 12;
 	double cutoff_hz = 1.0e6;	// prototype's -6 dB point
 	double atten_db = 60;		// Kaiser design attenuation
-	std::vector<int> rf_channels;	// wanted RF channels 0..39 (empty: all 40)
+	std::vector<int> rf_channels;	// RF channels 0..39, or 0..78 with classic_grid (empty: all)
 };
 
 class Channelizer {
@@ -50,7 +53,7 @@ public:
 	Channelizer &operator=(const Channelizer &) = delete;
 
 	int bins() const { return M_; }			// M
-	int decimation() const { return D_; }		// D = M / 2
+	int decimation() const { return D_; }		// D = fs / 4 MHz
 	int taps() const { return L_; }			// L = K * M
 	int prefix() const { return L_; }		// history samples a block carries (>= L - 1)
 	double group_delay() const { return (L_ - 1) / 2.0; }	// wideband samples
@@ -59,7 +62,7 @@ public:
 	// Kept channels, in output order.
 	const std::vector<int> &rf_channels() const { return rf_; }
 	int bin_of(int out_index) const { return bin_[out_index]; }
-	// Baseband frequency of an RF channel centre after the NCO (a multiple of 2 MHz).
+	// Baseband frequency of an RF channel centre after the NCO (a multiple of the selected bin spacing).
 	double baseband_hz(int rf) const;
 	const std::vector<float> &prototype() const { return h_; }
 	std::string describe() const;
@@ -68,7 +71,8 @@ public:
 
 private:
 	friend class Worker;
-	double fs_, lo_, shift_;
+	double fs_, lo_, shift_, spacing_;
+	int channel_count_;
 	int M_, D_, K_, L_;
 	bool dc_block_, rotate_;
 	std::vector<float> h_;			// prototype, sum = 1

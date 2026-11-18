@@ -61,10 +61,12 @@ input samples as a prefix, so blocks are independent and the output is bit-ident
 continuous filterbank; 2 detector threads, each owning half the channels and walking blocks in
 order, so burst detection and demod stream across block edges (every burst found exactly once,
 noise floors track continuously); the main thread merges the detectors' bursts in time order
-and runs the LinkLayer, JSON, pcap and STATS. Detector submissions are limited to eight block
-sequences beyond the last fully consumed block (eight batches per group), including the reorder
-collection. Waiting producers propagate stdout backpressure through the fixed buffer pools to
-the source; batch depth/peak and known skipped slots are reported when output resumes. Bursts longer than 2.2 ms (Wi-Fi-occupied
+and runs the LinkLayer, JSON and pcap; a separate thread prints STATS from the main thread's
+counters, so a consumer that stops reading stdout does not silence it (`stdout_blocked_ms`).
+Detector submissions are limited to eight block sequences beyond the last fully consumed block
+(eight batches per group), including the reorder collection. Waiting producers propagate stdout
+backpressure through the fixed buffer pools to the source, which falls behind the ring and
+resynchronises (counted: `resyncs`, `skipped_slots`) instead of the process growing. Bursts longer than 2.2 ms (Wi-Fi-occupied
 stretches) are cut into 8.8 ms segments overlapping by 2.2 ms; packets decoded twice in an
 overlap are dropped using all recent packets that could recur at the current segment start. Because live bursts often carry other energy before a BLE preamble, the
 pipeline searches the whole burst for the adv AA and known AAs (`sync_window_bits` INT_MAX), but
@@ -144,3 +146,21 @@ w1700k-ble [--shm NAME] [--input FILE.cs16 --rate HZ] [--lo HZ] [--rate HZ]
 `--shm` defaults to `/w1700k-stream`; the sample rate defaults to the header's
 `radio_sample_rate`; `--lo` is required (the run script passes `status`'s `radio.lo_hz`).
 `--input` reads interleaved little-endian int16 IQ at `--rate`.
+
+## Optional Classic access-code observer
+
+`--classic` uses the same bounded source/worker/detector pipeline, with a 79-channel,
+1 MHz-spaced PFB. Decimation stays fs/4 MHz; the prototype length stays the same with the
+default taps setting. Four-phase bin derotation replaces alternating signs. Burst channel
+indices are Classic RF indices until emission; even centers are then remapped into the
+existing BLE RF/channel indices, retaining BLE statistics and PCAP semantics.
+
+`src/classic.{h,cpp}` scans all demodulation phases, validates the exact BCH/PN sync word and
+preamble, and deduplicates timing phases and overlapping segments per channel/run. Its
+per-channel history has a hard cap; no unbounded learned-device map is added to the decoder.
+The observer emits `kind=classic` JSON records before BLE processing. Whitening and payload
+decoding are deliberately not asserted: a repetition-coded header alone does not establish
+a valid HEC, packet TYPE, A2DP, or an audio codec. Header bits are raw whitened bits only.
+The SQLite sink batches Classic records with BLE in one transaction, with separate tables
+and persistent per-second channel/LAP activity. The dashboard queries the most recent minute
+through the activity primary key rather than scanning the raw packet history.

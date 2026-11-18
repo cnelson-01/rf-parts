@@ -13,7 +13,17 @@
 //  - Packet times (t_stream, t_wall, sample_index) refer to the first preamble bit of the packet.
 //  - addr is the transmitter's address: AdvA, ScanA (SCAN_REQ), InitA (CONNECT_IND /
 //    AUX_CONNECT_REQ); tx_add is its type. rx_add is set only where the PDU carries a receiver
-//    address (TargetA / AdvA).
+//    address (TargetA / AdvA); rx_addr is that address.
+//  - Reply slots (FOLLOW.md section 1): a CRC-good legacy advert that invites a reply (ADV_IND,
+//    ADV_SCAN_IND, ADV_DIRECT_IND on 37/38/39) opens a slot on its channel, T_IFS after its last
+//    bit. The first later burst on the channel whose energy onset falls in the slot's onset window
+//    consumes it; inside any burst (its own, the advert's, or one that started earlier) a frame
+//    whose first preamble bit is within 4 us of T_IFS answers it. A CRC-good SCAN_REQ /
+//    CONNECT_IND to the advertiser there: answered and decoded. A CRC-failed adv-AA frame there,
+//    or a burst that started in the slot and yielded no CRC-good packet at all: a Packet with
+//    reply_undecoded set (pdu_type "REPLY_UNDECODED") is reported. Such a record is not a packet:
+//    its pdu / air are empty and the pcap writer skips it. Windows and their measurement:
+//    ble_ll.cpp, kOnsetEarly.
 #pragma once
 
 #include <cstdint>
@@ -63,6 +73,11 @@ struct Packet {
 					// or for data: "LL_DATA", "LL_DATA_START", "LL_CONTROL", "LL_EMPTY"
 	std::string addr;		// AdvA (or ScanA for SCAN_REQ), "AA:BB:CC:DD:EE:FF"
 	int tx_add = -1, rx_add = -1;
+	std::string rx_addr;		// receiver address where the PDU carries one: AdvA of SCAN_REQ /
+					// CONNECT_IND / AUX_SCAN_REQ / AUX_CONNECT_REQ, TargetA of
+					// ADV_DIRECT_IND and of an extended header (AUX_CONNECT_RSP, directed
+					// ADV_EXT_IND / AUX_ADV_IND, ...). Set on CRC-failed packets too.
+					// REPLY_UNDECODED: AdvA of the advert being answered.
 	std::string name;		// Complete/Shortened Local Name
 	std::string apple;		// Apple Continuity subtype name
 	std::string ibeacon_uuid;
@@ -94,10 +109,39 @@ struct Packet {
 	int aux_channel = -1, aux_phy = -1;	// AuxPtr: BLE channel, PHY (0 1M, 1 2M, 2 Coded)
 	int aux_offset_us = -1;		// AuxPtr offset (lower bound) from this packet's start
 	int tx_power = 127;		// extended header TxPower (dBm); 127 = absent (spec's "n/a")
+
+	// REPLY_UNDECODED record (see the conventions above and LinkLayerConfig::reply_slots). Its
+	// time is the reply's start: the first preamble bit of the frame if one was found, else the
+	// later of the burst's energy onset and T_IFS after the advert (a transmitter keys its carrier
+	// up 1..30 us before its first preamble bit, so the onset alone would read early); sync_bit is
+	// that start's bit index in the burst, comparable with a decoded packet's sync_bit.
+	bool reply_undecoded = false;
+	std::string reply_to;		// the advert's type: "ADV_IND", "ADV_SCAN_IND", "ADV_DIRECT_IND"
+	float reply_gap_us = 0;		// the advert's last bit -> the reply's start
+	float reply_us = 0;		// the reply's start -> the end of the burst's energy (with a
+					// frame: no later than the frame's end by its length field): 176 for
+					// a SCAN_REQ, 352 for a CONNECT_IND (LE 1M), within a few us when
+					// the burst holds only the reply
+	float reply_onset_us = 0;	// the advert's last bit -> the burst's energy onset, when the burst
+					// started in the slot (NaN when a frame inside an older burst answered)
+	std::string reply_fits;		// "SCAN_REQ" / "CONNECT_IND" when reply_us is that PDU's length
+	std::string guess;		// from a frame with the adv AA whose CRC failed: its PDU type if
+					// that is SCAN_REQ / CONNECT_IND (header type, else length field).
+					// addr / tx_add / rx_add / aa_errors then describe that frame too
+	std::vector<uint8_t> frame_pdu, frame_air;	// that frame, as pdu / air of a packet
 };
+
+// Process-wide default of LinkLayerConfig::reply_slots (initially true). main.cpp's
+// --no-reply-slots clears it before the pipeline builds its LinkLayerConfig (PipelineConfig lives
+// in pipeline.h, which is not the link layer's file: hence a default instead of a field there).
+bool reply_slots_default();
+void set_reply_slots_default(bool on);
 
 struct LinkLayerConfig {
 	bool emit_bad_crc = false;	// also output packets whose CRC fails (crc_ok=false)
+	bool reply_slots = reply_slots_default();	// reply-slot accounting on 37/38/39: the
+					// reply_* counters and REPLY_UNDECODED records (emitted whatever
+					// emit_bad_crc says)
 	int data_confirm_hits = 2;	// recovered CRC init must repeat this many times to confirm
 	double data_aa_ttl_s = 30;	// forget data access addresses idle this long
 	int sync_window_bits = 40;	// a burst's first packet must start within its first N bits
@@ -120,6 +164,11 @@ struct LinkLayerStats {
 	uint64_t phase_fallback = 0;	// packets decoded from a bit phase other than the first
 	uint64_t aas_tracked = 0;	// current size of the access-address table
 	uint64_t aas_expired = 0;
+	// Reply slots (cumulative). Unanswered = reply_slots - reply_decoded - reply_undecoded.
+	uint64_t reply_slots = 0;	// opened: CRC-good ADV_IND / ADV_SCAN_IND / ADV_DIRECT_IND on 37-39
+	uint64_t reply_decoded = 0;	// answered by a CRC-good SCAN_REQ / CONNECT_IND to the advertiser
+					// starting at T_IFS
+	uint64_t reply_undecoded = 0;	// answered by energy that did not decode: REPLY_UNDECODED records
 };
 
 class LinkLayer {
@@ -133,7 +182,9 @@ public:
 	// holds one packet; may hold more if the DSP merged back-to-back transmissions or a long
 	// segment carries many). Every packet whose decode checks out is found wherever it starts
 	// (after the first within sync_window_bits); a CRC-failed or unconfirmed decode is reported
-	// where it does not overlap one that checks out.
+	// where it does not overlap one that checks out. A REPLY_UNDECODED record (reply_slots) comes
+	// after the packets of the burst it describes.
+	// Bursts must arrive in start-time order per channel (the pipeline merges them so).
 	void on_burst(const Burst &burst, std::vector<Packet> &out);
 
 	const LinkLayerStats &stats() const;
@@ -149,6 +200,7 @@ std::string packet_to_json(const Packet &p);
 // Wireshark pcap, LINKTYPE_BLUETOOTH_LE_LL_WITH_PHDR (256). Per packet: the 10-byte LE PHDR
 // (signal/noise "dBm" fields carry rssi_dbfs/noise_dbfs rounded: dB full scale, not dBm), then
 // the received AA (little-endian), the dewhitened PDU and the dewhitened CRC in on-air byte order.
+// REPLY_UNDECODED records are not packets: write() skips them.
 class PcapWriter {
 public:
 	explicit PcapWriter(std::FILE *f);	// writes the global header; does not own f

@@ -11,6 +11,52 @@ so the existing dashboard, `range_server.py` and ad-hoc queries all keep working
 ./run.sh --web          # check the receiver, build, sniff into ./ble_w1700k.db, UI on :8075
 ```
 
+## Classic Bluetooth / A2DP traffic visibility
+
+```
+./run.sh --web --pcap --classic
+```
+
+`--classic` adds a passive **BR/EDR access-code observer** alongside BLE. This is the radio
+transport used by A2DP, but **it is not an A2DP payload/profile decoder**. It requires no
+connection to a Bluetooth device, pairing, keys, or receiver retuning. The existing 160 Msps,
+2441 MHz setup covers all 79 Classic channels (2402 + k MHz).
+
+The dashboard's **Classic Bluetooth** section shows exact access-code matches, packets/s,
+RSSI, channel coverage, and a 60-second waterfall. Click a LAP to select its hopping trace.
+LAP is only 24 bits: repeated matches identify an access code/piconet, not necessarily one
+unique device, a headset, or active audio. Both directions of a connection normally share its
+central's access code. Inquiry/page traffic also uses access codes.
+
+What is decoded: the complete 64-bit synchronization word, checked by reconstructing its
+BCH parity and PN overlay, and its 24-bit LAP. A valid alternating preamble is also required
+(at most one preamble-bit error). Access-code bit errors are currently rejected. The optional
+18-bit repetition-decoded header remains **whitened**; `header_fec_errors >= 0` indicates its
+availability, not HEC validation. No UAP, connection clock, packet TYPE, payload length,
+encryption state, EDR modulation, bitrate, audio codec, or profile is inferred from it.
+
+Classic JSON records have `kind: "classic"`, `classic_channel: 0..78`, timestamps, LAP,
+sync word and signal measurements. The SQLite sink stores them separately in
+`classic_packets`, `classic_streams`, and `classic_activity`; `/api/classic` serves the view.
+The optional PCAP **still contains BLE only**. Classic metadata is retained in SQLite,
+including each raw JSON record. Capture growth increases with local Classic traffic.
+Nothing in this mode records or decrypts audio. A profile decoder would additionally need
+clock/UAP recovery, BR/EDR payload decoding and CRC validation, L2CAP/AVDTP reassembly, and
+access to plaintext signaling where encryption permits it.
+
+The combined channelizer uses 1 MHz bin spacing at 4 Msps per output; even-numbered centers
+also feed the existing BLE link layer. `--channels` restricts BLE output, while Classic still
+observes the entire covered band. STATS adds `classic_enabled` and cumulative
+`classic_packets`; the existing BLE counters retain their meaning. No second continuous
+reader is started. Exact-match detection is conservative: weak packets and collisions can
+be missed, so displayed rates are observed packet rates, not total link throughput.
+
+The implementation follows [Bluetooth Core 5.4, Vol 2, Part B, §6.3.3](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core-54/out/en/br-edr-controller/baseband-specification.html).
+`tests/test_classic.cpp` checks sync vectors, noise/corruption rejection, deduplication,
+run resets and long bursts; `tests/test_classic.py` checks 160/320 Msps IQ, odd/even channel
+centers, nonaligned LO, small block boundaries, BLE coexistence, SQLite separation and
+dashboard stream filtering.
+
 ## Why wideband: no hopping to follow
 
 A narrowband sniffer has to choose a channel. To follow a connection it must catch the
@@ -235,11 +281,14 @@ across timing phases, and sizes its packet guard from the burst length. Overlap 
 retains packets by segment time instead of an eight-packet ring. Detector output is limited to
 eight blocks per detector group, including batches waiting for reordering, so a stalled sink
 applies backpressure all the way to the shared-memory reader. When output resumes, any resulting
-resynchronisation and known skipped slots appear in STATS. STATS itself waits while stdout is
-blocked. On a service run change, the reader first delivers its cached partial slice and drains
-consecutive final slots tagged with the old run.
+resynchronisation and known skipped slots appear in STATS. STATS has its own thread, so it keeps
+coming while stdout is blocked (`stdout_blocked_ms`, and `lag_ms` / `behind` as the reader falls
+behind the ring). On a service run change, the reader first delivers its cached partial slice
+and drains consecutive final slots tagged with the old run.
 
-New STATS fields: `batch_queue`, `batch_queue_peak`, `batch_queue_limit`, `packet_cap`, and
+New STATS fields: `batch_queue`, `batch_queue_peak`, `batch_queue_limit`, `batch_waits`
+(detector waits for the main thread), `stdout_blocked_ms` (how long the current stdout write has
+been blocked), `stdout_wait_s` (total time in stdout writes), `packet_cap`, and
 `skipped_slots`. The last field counts known abandoned slots (including EVENT slots, so it is
 not a sample count). The stream ABI does not retain the final length of an old run: if all of
 its final tags have already been overwritten, that count is a lower bound based on the last
@@ -269,7 +318,7 @@ behind-schedule scenario still uses its own accelerated rate.
 
 ## Limitations
 
-- **LE 1M PHY only.** LE 2M and LE Coded packets are not decoded, including AUX packets that
+- **BLE payload decoding: LE 1M PHY only.** LE 2M and LE Coded packets are not decoded, including AUX packets that
   advertisers send on those PHYs. `src/ble_ll.cpp` notes where they would slot in: 2M needs
   2 Mbit/s bit vectors with a 16-bit preamble, and Coded needs FEC and pattern demapping.
 - **Encrypted links show only their headers.** After LL_ENC_REQ/RSP and LL_START_ENC the payload

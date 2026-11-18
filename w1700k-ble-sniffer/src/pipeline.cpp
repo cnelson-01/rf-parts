@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <array>
+#include <bitset>
+#include "classic.h"
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -78,8 +80,11 @@ private:
 	void source_thread();
 	void worker_thread();
 	void detector_thread(int group);
-	void emit(const Burst &b);
+	void stats_thread();
+	void emit(Burst &b);
 	void drain(uint64_t limit, uint64_t run);
+	void flush_out();
+	void publish();
 	void print_stats(bool final);
 
 	PipelineConfig cfg_;
@@ -109,11 +114,14 @@ private:
 
 	std::mutex batch_mu_;
 	std::condition_variable batch_cv_, batch_space_cv_;
-	// Bound both the shared queue and main-thread reorder collection. A per-queue cap alone
-	// would allow the faster detector to accumulate unlimited batches in collect.
+	// Detectors run at most kBatchBlocks blocks ahead of the main thread's merge (this bounds the
+	// queue and the main thread's reorder map alike: a cap on the queue alone would let one
+	// detector pile batches up there). A main thread stalled on stdout thus stops the detectors,
+	// then the workers, then the source, which falls behind the stream: counted resyncs, not memory.
 	static constexpr uint64_t kBatchBlocks = 8;
 	uint64_t batch_next_seq_ = 0;
 	size_t batch_pending_ = 0, batch_peak_ = 0;
+	uint64_t batch_waits_ = 0;	// detector waits for the main thread
 	std::deque<Batch> batches_;
 
 	// Stats.
@@ -121,8 +129,26 @@ private:
 	std::vector<std::atomic<float>> noise_;	// by output channel
 	std::atomic<int> queue_depth_{0};
 
+	// The main thread's counters as of its last merged block (STATS runs on its own thread, so a
+	// stalled stdout does not silence it).
+	struct MainStats {
+		LinkLayerStats ll;
+	uint64_t classic_packets = 0;
+		uint64_t bursts_out = 0, packets_out = 0, duplicates = 0, wideband_events = 0, wideband_bursts = 0;
+		uint64_t ch_bursts[kNumRfChannels] = {};
+		double last_t_wall = 0;
+	};
+	std::mutex snap_mu_;
+	MainStats snap_;
+	std::mutex stats_mu_;
+	std::condition_variable stats_cv_;
+	bool stats_stop_ = false;
+	std::atomic<int64_t> write_since_ns_{0};	// steady clock: a stdout write in progress since
+	std::atomic<uint64_t> write_blocked_ns_{0};	// total time in stdout writes
+
 	// Main thread only.
 	std::unique_ptr<LinkLayer> ll_;
+	ClassicObserver classic_;
 	std::FILE *pcap_file_ = nullptr;
 	std::unique_ptr<PcapWriter> pcap_;
 	uint64_t bursts_out_ = 0, packets_out_ = 0;
@@ -138,10 +164,9 @@ private:
 	uint64_t wideband_events_ = 0, wideband_bursts_ = 0;
 	uint64_t ch_bursts_[kNumRfChannels] = {};
 	std::vector<Packet> pkts_;
-	bool wrote_ = false;
-	std::string line_;
+	std::string out_, line_;	// stdout, written once per merged batch of blocks
 
-	// Stats deltas.
+	// Stats deltas (the STATS thread; the final line: the main thread after joining it).
 	Clock::time_point t_start_, t_last_;
 	double cpu_last_ = 0;
 	uint64_t samples_last_ = 0, frames_last_ = 0, bursts_last_ = 0, resyncs_last_ = 0;
@@ -158,6 +183,11 @@ int Pipeline::run()
 	cc.lo_hz = cfg_.lo_hz;
 	cc.dc_block = cfg_.dc_block;
 	cc.rf_channels = cfg_.rf_channels;
+	if (cfg_.classic) {
+		cc.classic_grid = true;
+		cc.rf_channels.clear(); // all Classic centres, regardless of the BLE channel selection
+		cfg_.detector.min_us = std::min(cfg_.detector.min_us, 60.0);
+	}
 	try {
 		ch_.reset(new Channelizer(cc));
 	} catch (const std::exception &e) {
@@ -219,6 +249,9 @@ int Pipeline::run()
 		threads.emplace_back([this] { worker_thread(); });
 	for (int g = 0; g < G_; g++)
 		threads.emplace_back([this, g] { detector_thread(g); });
+	std::thread stats;
+	if (cfg_.stats_s > 0)
+		stats = std::thread([this] { stats_thread(); });
 
 	// Main: merge, link layer, output.
 	std::map<uint64_t, std::vector<Batch>> collect;
@@ -228,8 +261,6 @@ int Pipeline::run()
 	};
 	std::vector<Burst> heap;
 	bool eos = false, stopping = false;
-	auto next_stats = Clock::now() + std::chrono::duration_cast<Clock::duration>(
-						 std::chrono::duration<double>(cfg_.stats_s > 0 ? cfg_.stats_s : 1e9));
 	while (!eos) {
 		Batch batch;
 		bool got = false;
@@ -282,20 +313,8 @@ int Pipeline::run()
 				}
 				batch_space_cv_.notify_all();
 			}
-			if (wrote_) {
-				std::fflush(stdout);
-				wrote_ = false;
-				if (std::ferror(stdout) && !g_stop) {
-					std::fprintf(stderr, "w1700k-ble: stdout closed, stopping\n");
-					g_stop = true;
-				}
-			}
-		}
-		if (cfg_.stats_s > 0 && Clock::now() >= next_stats) {
-			print_stats(false);
-			next_stats += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(cfg_.stats_s));
-			if (next_stats < Clock::now())
-				next_stats = Clock::now();
+			publish();
+			flush_out();
 		}
 	}
 	for (auto &t : threads)
@@ -303,14 +322,72 @@ int Pipeline::run()
 	for (auto &b : heap)	// (empty: eos flushes)
 		stage_.push_back(std::move(b));
 	drain(UINT64_MAX, UINT64_MAX);
-	std::fflush(stdout);
+	flush_out();
 	if (pcap_) {
 		pcap_->flush();
 		std::fclose(pcap_file_);
 	}
-	if (cfg_.stats_s > 0)
+	if (stats.joinable()) {
+		{
+			std::lock_guard<std::mutex> lk(stats_mu_);
+			stats_stop_ = true;
+		}
+		stats_cv_.notify_all();
+		stats.join();
+		publish();
 		print_stats(true);
+	}
 	return 0;
+}
+
+void Pipeline::stats_thread()
+{
+	const auto period = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(cfg_.stats_s));
+	auto next = t_start_ + period;
+	std::unique_lock<std::mutex> lk(stats_mu_);
+	while (!stats_cv_.wait_until(lk, next, [&] { return stats_stop_; })) {
+		lk.unlock();
+		print_stats(false);
+		lk.lock();
+		next += period;
+		if (next < Clock::now())
+			next = Clock::now();
+	}
+}
+
+// Main thread: the counters print_stats() reports.
+void Pipeline::publish()
+{
+	std::lock_guard<std::mutex> lk(snap_mu_);
+	snap_.ll = ll_->stats();
+	snap_.classic_packets = classic_.packets();
+	snap_.bursts_out = bursts_out_;
+	snap_.packets_out = packets_out_;
+	snap_.duplicates = duplicates_;
+	snap_.wideband_events = wideband_events_;
+	snap_.wideband_bursts = wideband_bursts_;
+	std::memcpy(snap_.ch_bursts, ch_bursts_, sizeof ch_bursts_);
+	snap_.last_t_wall = last_t_wall_;
+}
+
+// Main thread: everything emitted since the last call, to stdout. Blocks while the consumer
+// does not read (the STATS thread reports how long: stdout_blocked_ms).
+void Pipeline::flush_out()
+{
+	if (out_.empty())
+		return;
+	const int64_t t0 = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count();
+	write_since_ns_ = t0;
+	std::fwrite(out_.data(), 1, out_.size(), stdout);
+	std::fflush(stdout);
+	const int64_t t1 = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count();
+	write_since_ns_ = 0;
+	write_blocked_ns_ += uint64_t(t1 - t0);
+	out_.clear();
+	if (std::ferror(stdout) && !g_stop) {
+		std::fprintf(stderr, "w1700k-ble: stdout closed, stopping\n");
+		g_stop = true;
+	}
 }
 
 // Broadband events (receiver compression / impulses that raise the floor across the whole band
@@ -327,15 +404,15 @@ void Pipeline::drain(uint64_t limit, uint64_t run)
 		const bool complete = f.run_id < run || limit == UINT64_MAX || f.sample_index + window < limit;
 		if (!complete)
 			return;
-		uint64_t chans = 0;
+		std::bitset<79> chans;
 		size_t n = 0;
 		for (; n < stage_.size(); n++) {
 			const Burst &b = stage_[n];
 			if (b.run_id != f.run_id || b.sample_index > f.sample_index + window)
 				break;
-			chans |= 1ull << b.rf_channel;
+			chans.set(b.rf_channel);
 		}
-		if (__builtin_popcountll(chans) >= min_channels) {
+		if (int(chans.count()) >= min_channels) {
 			wideband_events_++;
 			wideband_bursts_ += n;
 			if (cfg_.drop_wideband) {
@@ -352,8 +429,15 @@ void Pipeline::drain(uint64_t limit, uint64_t run)
 	}
 }
 
-void Pipeline::emit(const Burst &b)
+void Pipeline::emit(Burst &b)
 {
+	if (cfg_.classic) {
+		classic_.observe(b, fs_, out_);
+		if (b.rf_channel & 1) return;
+		b.rf_channel /= 2;
+		b.ble_channel = rf_to_ble_channel(b.rf_channel);
+		if (!cfg_.rf_channels.empty() && std::find(cfg_.rf_channels.begin(), cfg_.rf_channels.end(), b.rf_channel) == cfg_.rf_channels.end()) return;
+	}
 	bursts_out_++;
 	last_t_wall_ = b.t_wall;
 	if (b.rf_channel >= 0 && b.rf_channel < kNumRfChannels)
@@ -379,8 +463,7 @@ void Pipeline::emit(const Burst &b)
 			line_ += '"';
 		}
 		line_ += "]}\n";
-		std::fputs(line_.c_str(), stdout);
-		wrote_ = true;
+		out_ += line_;
 	}
 	// Retain every packet that could recur in this segment, including dense overlaps. Bursts
 	// are ordered per channel, but a later segment can recover an earlier missed packet.
@@ -405,10 +488,8 @@ void Pipeline::emit(const Burst &b)
 		}
 		recent.push_back({p.run_id, p.sample_index, p.access_address, p.crc_rx, p.air.size()});
 		packets_out_++;
-		std::string js = packet_to_json(p);
-		js += '\n';
-		std::fputs(js.c_str(), stdout);
-		wrote_ = true;
+		out_ += packet_to_json(p);
+		out_ += '\n';
 		if (pcap_)
 			pcap_->write(p);
 	}
@@ -422,9 +503,18 @@ void Pipeline::print_stats(bool final)
 		dt = 1e-9;
 	double cpu = cpu_seconds();
 	SourceStats ss = src_->stats();
-	const LinkLayerStats &ls = ll_->stats();
+	MainStats m;
+	{
+		std::lock_guard<std::mutex> lk(snap_mu_);
+		m = snap_;
+	}
+	const LinkLayerStats &ls = m.ll;
 	uint64_t frames = frames_done_.load();
 	bool behind = live_ && (ss.resyncs > resyncs_last_ || ss.lag_s > 0.5 * ss.ring_s);
+	const int64_t ws = write_since_ns_.load();
+	const double blocked_ms =
+		ws ? double(std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count() - ws) * 1e-6
+		   : 0.0;
 
 	std::string s;
 	char b[1024];
@@ -440,46 +530,54 @@ void Pipeline::print_stats(bool final)
 		      (unsigned long long)ss.overwritten, (unsigned long long)ss.resyncs, ss.lag_s * 1e3,
 		      live_ ? ss.age_s * 1e3 : 0.0, (unsigned long long)ss.svc_lost,
 		      (unsigned long long)ss.svc_overruns,
-		      live_ && last_t_wall_ > 0 ? (realtime_now() - last_t_wall_) * 1e3 : 0.0, queue_depth_.load(), (unsigned long long)src_stalls_.load(),
+		      live_ && m.last_t_wall > 0 ? (realtime_now() - m.last_t_wall) * 1e3 : 0.0, queue_depth_.load(),
+		      (unsigned long long)src_stalls_.load(),
 		      behind ? "true" : "false", (cpu - cpu_last_) / dt, 2 + workers_ + G_);
 	s += b;
 	std::snprintf(b, sizeof b,
 		      "\"bursts\":%llu,\"bursts_per_s\":%.1f,\"too_short\":%llu,\"long_bursts\":%llu,\"segments\":%llu,"
 		      "\"wideband_events\":%llu,\"wideband_bursts\":%llu,\"duplicates\":%llu,\"packets\":%llu,"
 		      "\"packets_per_s\":{\"adv_ok\":%.1f,\"adv_bad\":%.1f,\"data_ok\":%.1f,\"data_unconfirmed\":%.1f,"
-		      "\"data_bad\":%.1f,\"no_sync\":%.1f},\"connections\":%llu,",
-		      (unsigned long long)bursts_out_, double(bursts_out_ - bursts_last_) / dt,
+		      "\"data_bad\":%.1f,\"no_sync\":%.1f},\"connections\":%llu,"
+		      "\"reply_slots\":%llu,\"reply_decoded\":%llu,\"reply_undecoded\":%llu,",
+		      (unsigned long long)m.bursts_out, double(m.bursts_out - bursts_last_) / dt,
 		      (unsigned long long)too_short_.load(), (unsigned long long)long_bursts_.load(),
 		      (unsigned long long)segments_.load(),
-		      (unsigned long long)wideband_events_, (unsigned long long)wideband_bursts_,
-		      (unsigned long long)duplicates_,
-		      (unsigned long long)packets_out_, double(ls.adv_ok - ll_last_.adv_ok) / dt,
+		      (unsigned long long)m.wideband_events, (unsigned long long)m.wideband_bursts,
+		      (unsigned long long)m.duplicates,
+		      (unsigned long long)m.packets_out, double(ls.adv_ok - ll_last_.adv_ok) / dt,
 		      double(ls.adv_bad - ll_last_.adv_bad) / dt, double(ls.data_ok - ll_last_.data_ok) / dt,
 		      double(ls.data_unconfirmed - ll_last_.data_unconfirmed) / dt,
 		      double(ls.data_bad - ll_last_.data_bad) / dt, double(ls.no_sync - ll_last_.no_sync) / dt,
-		      (unsigned long long)ls.connections_seen);
+		      (unsigned long long)ls.connections_seen, (unsigned long long)ls.reply_slots,
+		      (unsigned long long)ls.reply_decoded, (unsigned long long)ls.reply_undecoded);
 	s += b;
 	{
 		std::lock_guard<std::mutex> lk(batch_mu_);
 		std::snprintf(b, sizeof b,
-			"\"batch_queue\":%zu,\"batch_queue_peak\":%zu,\"batch_queue_limit\":%llu,"
-			"\"packet_cap\":%llu,\"skipped_slots\":%llu,",
-			batch_pending_, batch_peak_, (unsigned long long)(kBatchBlocks * G_),
-			(unsigned long long)ls.packet_cap, (unsigned long long)ss.skipped_slots);
+			      "\"batch_queue\":%zu,\"batch_queue_peak\":%zu,\"batch_queue_limit\":%llu,\"batch_waits\":%llu,"
+			      "\"stdout_blocked_ms\":%.1f,\"stdout_wait_s\":%.3f,\"packet_cap\":%llu,\"skipped_slots\":%llu,",
+			      batch_pending_, batch_peak_, (unsigned long long)(kBatchBlocks * G_),
+			      (unsigned long long)batch_waits_, blocked_ms, double(write_blocked_ns_.load()) * 1e-9,
+			      (unsigned long long)ls.packet_cap, (unsigned long long)ss.skipped_slots);
 	}
+	s += b;
+	std::snprintf(b, sizeof b, "\"classic_enabled\":%s,\"classic_packets\":%llu,", cfg_.classic ? "true" : "false", (unsigned long long)m.classic_packets);
 	s += b;
 	// Per BLE channel index 0..39: bursts/s and noise floor.
 	float noise_by_ble[kNumRfChannels];
 	bool have[kNumRfChannels] = {};
 	for (int c = 0; c < nch_; c++) {
-		int ble = rf_to_ble_channel(ch_->rf_channels()[c]);
+		int rf = ch_->rf_channels()[c];
+		if (cfg_.classic && (rf & 1)) continue;
+		int ble = rf_to_ble_channel(cfg_.classic ? rf / 2 : rf);
 		noise_by_ble[ble] = noise_[c].load();
 		have[ble] = true;
 	}
 	s += "\"ch_bursts_per_s\":[";
 	for (int ble = 0; ble < kNumRfChannels; ble++) {
 		int rf = ble_to_rf_channel(ble);
-		std::snprintf(b, sizeof b, "%s%.1f", ble ? "," : "", double(ch_bursts_[rf] - ch_last_[rf]) / dt);
+		std::snprintf(b, sizeof b, "%s%.1f", ble ? "," : "", double(m.ch_bursts[rf] - ch_last_[rf]) / dt);
 		s += b;
 	}
 	s += "],\"noise_dbfs\":[";
@@ -498,9 +596,9 @@ void Pipeline::print_stats(bool final)
 	cpu_last_ = cpu;
 	samples_last_ = ss.samples;
 	frames_last_ = frames;
-	bursts_last_ = bursts_out_;
+	bursts_last_ = m.bursts_out;
 	resyncs_last_ = ss.resyncs;
-	std::memcpy(ch_last_, ch_bursts_, sizeof ch_last_);
+	std::memcpy(ch_last_, m.ch_bursts, sizeof ch_last_);
 	ll_last_ = ls;
 }
 
@@ -716,7 +814,10 @@ void Pipeline::detector_thread(int group)
 		last = sum;
 		{
 			std::unique_lock<std::mutex> lk(batch_mu_);
-			batch_space_cv_.wait(lk, [&] { return bt.seq < batch_next_seq_ + kBatchBlocks; });
+			if (bt.seq >= batch_next_seq_ + kBatchBlocks) {
+				batch_waits_++;
+				batch_space_cv_.wait(lk, [&] { return bt.seq < batch_next_seq_ + kBatchBlocks; });
+			}
 			batches_.push_back(std::move(bt));
 			batch_peak_ = std::max(batch_peak_, ++batch_pending_);
 		}

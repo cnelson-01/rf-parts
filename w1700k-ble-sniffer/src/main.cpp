@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "ble_ll.h"
 #include "pipeline.h"
 #include "source.h"
 
@@ -26,8 +27,11 @@ void usage(std::FILE *f)
 		"  --rate HZ           sample rate (default: the stream header's radio_sample_rate;\n"
 		"                      required with --input); a multiple of 4 MHz\n"
 		"  --lo HZ             the receiver's exact LO (required: w1700k status radio.lo_hz)\n"
+		"  --classic           also observe Classic BR/EDR traffic (79 channels); no A2DP payload decode\n"
 		"  --pcap FILE         also write a pcap (LINKTYPE_BLUETOOTH_LE_LL_WITH_PHDR)\n"
 		"  --emit-bad-crc      also output packets whose CRC fails\n"
+		"  --no-reply-slots    no reply-slot accounting on 37/38/39 (REPLY_UNDECODED records and\n"
+		"                      the reply_* STATS counters)\n"
 		"  --threads N         channelizer threads (default: auto, 3 at 160 Msps, 5 at 320, 2 at 80);\n"
 		"                      total threads = N + detector threads + 2\n"
 		"  --stats SEC         a STATS {json} line on stderr every SEC seconds\n"
@@ -127,10 +131,14 @@ int main(int argc, char **argv)
 		} else if (a == "--lo") {
 			cfg.lo_hz = std::atof(val());
 			have_lo = true;
+		} else if (a == "--classic") {
+			cfg.classic = true;
 		} else if (a == "--pcap") {
 			cfg.pcap_path = val();
 		} else if (a == "--emit-bad-crc") {
 			cfg.emit_bad_crc = true;
+		} else if (a == "--no-reply-slots") {
+			set_reply_slots_default(false);	// read when the pipeline builds its LinkLayerConfig
 		} else if (a == "--threads") {
 			cfg.workers = std::atoi(val());
 		} else if (a == "--detect-threads") {

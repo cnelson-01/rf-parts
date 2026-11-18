@@ -10,7 +10,7 @@ override CXXFLAGS += -std=c++17 -Wall -Wextra -Wno-unused-parameter -pthread -Is
             $(shell pkg-config --cflags fftw3f)
 LDLIBS   += $(shell pkg-config --libs fftw3f) -lfftw3f_threads -pthread
 
-BUILD    ?= build
+BUILD    := build
 SRCS     := $(wildcard src/*.cpp)
 OBJS     := $(SRCS:src/%.cpp=$(BUILD)/%.o)
 LIBOBJS  := $(filter-out $(BUILD)/main.o,$(OBJS))

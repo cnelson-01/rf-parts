@@ -4,12 +4,17 @@
 //  1. primitives against independent bit-level references (Core spec figures, old Pluto forms)
 //  2. ground truth: 400+ real packets from the Pluto/bladeRF scanner db (tests/vectors/)
 //  3. synthetic: CONNECT_IND + data, blind CRC-init recovery, extended/periodic advertising,
-//     merged bursts, noise, truncation, sync tolerance
+//     merged bursts, noise, truncation, sync tolerance; long segments (a packet past bit 4096,
+//     earlier packets that check out only with a preamble error or in another phase, 60 packets
+//     in one burst, a blind data packet before a CRC-failed adv one)
+//  3b. follow by MAC (FOLLOW.md section 1): the new JSON keys (rx_addr, dir, ..., sync_bit,
+//     aa_errors) and reply-slot accounting with its REPLY_UNDECODED records
 //  4. JSON (validated by python's json) and pcap (parsed and CRC-checked by a python reader)
-//  5. throughput micro-benchmark
+//  5. throughput micro-benchmark (sync window 40 bits and the pipeline's whole burst)
 #include "ble_ll.h"
 
 #include <chrono>
+#include <climits>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -964,14 +969,402 @@ static void test_noise()
 		    (unsigned long long)ll.stats().aas_tracked, cfg.max_blind_aas);
 }
 
+// ---- 3b. follow-by-MAC output (FOLLOW.md section 1) ----
+
+static std::string tmp_path(const char *suffix);
+
+static bool ends_with(const std::string &s, const std::string &suffix)
+{
+	return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+static std::vector<uint8_t> connect_pdu(const std::vector<uint8_t> &init, const std::vector<uint8_t> &adv,
+					uint32_t aa = 0x50654A3B, uint32_t crc_init = 0x8F12A4)
+{
+	std::vector<uint8_t> lld = cat(le(aa, 4), le(crc_init, 3));
+	lld = cat(lld, {2, 0, 0, 24, 0, 0, 0, 72, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0x1F, 7 | 1 << 5});
+	return adv_pdu(5, 1, 0, cat(cat(init, adv), lld), 1);
+}
+
+// The new optional keys: appended after every existing key, so existing lines keep their layout.
+static void test_follow_keys()
+{
+	LinkLayerConfig cfg;
+	cfg.emit_bad_crc = true;
+	LinkLayer ll(cfg);
+	double t = 600.0;
+	auto send = [&](int ch, const std::vector<uint8_t> &pdu, int flip_air_byte = -1, int flip_aa_bit = -1) {
+		auto air = make_air(pdu, kAdvCrcInit, ch);
+		if (flip_air_byte >= 0)
+			air[flip_air_byte] ^= 0x04;
+		auto bits = make_bits(kAdvAccessAddress, air, 4, 8);
+		if (flip_aa_bit >= 0)
+			bits[4 + 8 + flip_aa_bit] ^= 1;
+		t += 0.01;
+		return feed(ll, make_burst(ch, t, {bits}));
+	};
+	const std::string A = "C6:55:44:33:22:11", B = "46:E5:D4:C3:B2:A1";
+	// SCAN_REQ: rx_addr = AdvA; sync_bit and aa_errors close every packet line
+	auto o = send(38, adv_pdu(3, 1, 0, cat(kAddrB, kAddrA)));
+	CHECK(o.size() == 1 && o[0].crc_ok && o[0].rx_addr == A && o[0].addr == B);
+	if (o.size() == 1)
+		CHECK(ends_with(packet_to_json(o[0]), ",\"rx_addr\":\"" + A + "\",\"sync_bit\":4,\"aa_errors\":0}"));
+	// the same with a CRC error and one AA bit error: rx_addr best effort, aa_errors 1
+	o = send(38, adv_pdu(3, 1, 0, cat(kAddrB, kAddrA)), 15, 7);
+	CHECK(o.size() == 1 && !o[0].crc_ok && o[0].rx_addr == A && o[0].aa_errors == 1);
+	if (o.size() == 1)
+		CHECK(ends_with(packet_to_json(o[0]), ",\"rx_addr\":\"" + A + "\",\"sync_bit\":4,\"aa_errors\":1}"));
+	// ADV_DIRECT_IND: TargetA, ChSel
+	o = send(39, adv_pdu(1, 1, 1, cat(kAddrA, kAddrB), 1));
+	CHECK(o.size() == 1 && o[0].pdu_type == "ADV_DIRECT_IND" && o[0].rx_addr == B && o[0].rx_add == 1);
+	if (o.size() == 1)
+		CHECK(ends_with(packet_to_json(o[0]), ",\"rx_addr\":\"" + B + "\",\"chsel\":1,\"sync_bit\":4,\"aa_errors\":0}"));
+	// ADV_IND: ChSel only, no receiver
+	o = send(37, adv_pdu(0, 1, 0, cat(kAddrA, {0x02, 0x01, 0x06}), 1));
+	CHECK(o.size() == 1 && o[0].rx_addr.empty());
+	if (o.size() == 1) {
+		std::string js = packet_to_json(o[0]);
+		CHECK(ends_with(js, ",\"chsel\":1,\"sync_bit\":4,\"aa_errors\":0}"));
+		CHECK(js.find("rx_addr") == std::string::npos && js.find("\"dir\"") == std::string::npos);
+	}
+	// CONNECT_IND: the new keys follow the connect object
+	const uint32_t AA = 0x50654A3B, INIT = 0x2468AC;
+	CHECK(aa_plausible(AA));
+	o = send(38, connect_pdu(kAddrB, kAddrA, AA, INIT));
+	CHECK(o.size() == 1 && o[0].has_connect && o[0].rx_addr == A && o[0].chsel == 1);
+	if (o.size() == 1)
+		CHECK(ends_with(packet_to_json(o[0]), "\"win_size\":2,\"win_offset\":0},\"rx_addr\":\"" + A +
+							       "\",\"chsel\":1,\"sync_bit\":4,\"aa_errors\":0}"));
+	// directed ADV_EXT_IND: AdvA, TargetA, ADI (DID 0x456 SID 5), AuxPtr (ch 22, 30 us x 50, 1M),
+	// TxPower -8 dBm; AdvMode 1
+	auto ext = adv_pdu(7, 1, 0, ext_payload(1, cat(cat(kAddrA, kAddrB), {0x56, 0x54, 22, 50, 0x00, 0xF8}), 0x5B, {}));
+	o = send(39, ext);
+	CHECK(o.size() == 1 && o[0].pdu_type == "ADV_EXT_IND" && o[0].rx_addr == B && o[0].tx_power == -8);
+	if (o.size() == 1)
+		CHECK(ends_with(packet_to_json(o[0]),
+				",\"rx_addr\":\"" + B + "\",\"adv_mode\":1,\"aux_channel\":22,\"aux_phy\":0,"
+				"\"aux_offset_us\":1500,\"adi_sid\":5,\"adi_did\":1110,\"tx_power\":-8,\"sync_bit\":4,"
+				"\"aa_errors\":0}"));
+	// AUX_SCAN_REQ, AUX_CONNECT_REQ (AdvA), AUX_CONNECT_RSP (TargetA)
+	o = send(10, adv_pdu(3, 1, 0, cat(kAddrB, kAddrA)));
+	CHECK(o.size() == 1 && o[0].pdu_type == "AUX_SCAN_REQ" && o[0].rx_addr == A);
+	o = send(12, connect_pdu(kAddrB, kAddrA, 0x3C5A9E17, 0x0A0B0C));
+	CHECK(o.size() == 1 && o[0].pdu_type == "AUX_CONNECT_REQ" && o[0].rx_addr == A);
+	o = send(12, adv_pdu(8, 1, 1, ext_payload(0, cat(kAddrA, kAddrB), 0x03, {})));
+	CHECK(o.size() == 1 && o[0].pdu_type == "AUX_CONNECT_RSP" && o[0].rx_addr == B && o[0].addr == A);
+	if (o.size() == 1)
+		CHECK(ends_with(packet_to_json(o[0]), ",\"rx_addr\":\"" + B + "\",\"adv_mode\":0,\"sync_bit\":4,\"aa_errors\":0}"));
+	// data on the CONNECT_IND's connection: central -> peripheral, then the answer T_IFS later
+	auto a1 = make_air(data_pdu(1, 0, 0, 0, {}), INIT, 9);
+	auto a2 = make_air(data_pdu(1, 1, 1, 0, {}), INIT, 9);
+	t += 0.01;
+	auto d1 = feed(ll, make_burst(9, t, {make_bits(AA, a1, 4, 8)}));
+	auto d2 = feed(ll, make_burst(9, t + (pkt_us(a1.size()) + 150) * 1e-6, {make_bits(AA, a2, 4, 8)}));
+	CHECK(d1.size() == 1 && d2.size() == 1);
+	if (d1.size() == 1 && d2.size() == 1) {
+		CHECK(ends_with(packet_to_json(d1[0]), ",\"md\":0,\"dir\":0,\"sync_bit\":4,\"aa_errors\":0}"));
+		CHECK(ends_with(packet_to_json(d2[0]), ",\"md\":0,\"dir\":1,\"sync_bit\":4,\"aa_errors\":0}"));
+	}
+	// a missing first preamble bit reads sync_bit -1
+	auto bits = make_bits(kAdvAccessAddress, make_air(adv_pdu(2, 1, 0, kAddrA), kAdvCrcInit, 37), 0, 8);
+	bits.erase(bits.begin());
+	t += 0.01;
+	o = feed(ll, make_burst(37, t, {bits}));
+	CHECK(o.size() == 1 && o[0].sync_bit == -1);
+	if (o.size() == 1)
+		CHECK(ends_with(packet_to_json(o[0]), ",\"sync_bit\":-1,\"aa_errors\":0}"));
+	CHECK_EQ(ll.stats().reply_undecoded, 0u);
+	std::printf("follow keys: rx_addr (SCAN_REQ, bad-CRC SCAN_REQ, ADV_DIRECT_IND, CONNECT_IND, directed "
+		    "ADV_EXT_IND, AUX_SCAN_REQ/CONNECT_REQ/CONNECT_RSP), dir, chsel, adv_mode, aux_*, adi_*, "
+		    "tx_power, sync_bit, aa_errors appended after the old keys ok\n");
+}
+
+// Reply slots and REPLY_UNDECODED records (FOLLOW.md section 1). Times: the advert's burst starts
+// at t with 4 lead bits; a reply burst has 12 lead bits, so its energy onset (bit 9.6 of the
+// vector, as demod.cpp places it) is 2.4 us before its first preamble bit.
+static void test_reply_slots()
+{
+	const std::string A = "C6:55:44:33:22:11", B = "46:E5:D4:C3:B2:A1";
+	const auto adv_ind = adv_pdu(0, 1, 0, cat(kAddrA, {0x02, 0x01, 0x06}));
+	const auto scan_req = adv_pdu(3, 1, 0, cat(kAddrB, kAddrA));
+	const auto conn = connect_pdu(kAddrB, kAddrA);
+	const int LR = 12;
+	// The advert; returns T_IFS after its last bit (where the reply's first preamble bit goes).
+	auto advert = [&](LinkLayer &ll, int ch, double t, const std::vector<uint8_t> &pdu, int trail = 4) {
+		auto air = make_air(pdu, kAdvCrcInit, ch);
+		auto o = feed(ll, make_burst(ch, t, {make_bits(kAdvAccessAddress, air, 4, trail)}));
+		CHECK(!o.empty() && o[0].crc_ok);
+		return t + (4 + pkt_us(air.size()) + 150) * 1e-6;
+	};
+	// A burst whose first preamble bit (bit `lead`) is at time ts.
+	auto reply = [&](LinkLayer &ll, int ch, double ts, const std::vector<uint8_t> &pdu, int flip = -1,
+			 int lead = LR, int trail = 4) {
+		auto air = make_air(pdu, kAdvCrcInit, ch);
+		if (flip >= 0)
+			air[flip] ^= 0x04;
+		return feed(ll, make_burst(ch, ts - lead * 1e-6, {make_bits(kAdvAccessAddress, air, lead, trail)}));
+	};
+	auto noise = [&](LinkLayer &ll, int ch, double ts, int n, int lead = LR) {
+		std::vector<uint8_t> v;
+		push_noise(v, n);
+		return feed(ll, make_burst(ch, ts - lead * 1e-6, {v}));
+	};
+	auto stats_are = [](const LinkLayer &ll, uint64_t opened, uint64_t dec, uint64_t undec) {
+		const LinkLayerStats &s = ll.stats();
+		return s.reply_slots == opened && s.reply_decoded == dec && s.reply_undecoded == undec;
+	};
+	double t = 700.0;
+	{	// advert + clean CONNECT_IND in its own burst: decoded, no record
+		LinkLayer ll;
+		double ts = advert(ll, 37, t, adv_ind);
+		auto o = reply(ll, 37, ts, conn);
+		CHECK(o.size() == 1 && o[0].crc_ok && o[0].pdu_type == "CONNECT_IND" && o[0].rx_addr == A);
+		CHECK(stats_are(ll, 1, 1, 0));
+		// and a clean SCAN_REQ (decoded), then its SCAN_RSP: nothing more
+		ts = advert(ll, 38, t + 0.01, adv_ind);
+		o = reply(ll, 38, ts, scan_req);
+		CHECK(o.size() == 1 && o[0].crc_ok && o[0].pdu_type == "SCAN_REQ");
+		o = reply(ll, 38, ts + (pkt_us(17) + 150) * 1e-6, adv_pdu(4, 1, 0, kAddrA));
+		CHECK(o.size() == 1 && o[0].pdu_type == "SCAN_RSP");
+		CHECK(stats_are(ll, 2, 2, 0));
+	}
+	for (int bad_crc = 0; bad_crc < 2; bad_crc++) {	// advert + corrupted CONNECT_IND: one record
+		LinkLayerConfig cfg;
+		cfg.emit_bad_crc = bad_crc;
+		LinkLayer ll(cfg);
+		double ts = advert(ll, 37, t + 0.02, adv_ind);
+		auto o = reply(ll, 37, ts, conn, 20);		// an LLData byte: header and addresses intact
+		CHECK_EQ(o.size(), bad_crc ? 2u : 1u);
+		if (o.size() != (bad_crc ? 2u : 1u))
+			continue;
+		if (bad_crc)	// the ordinary bad-CRC line too, before the record
+			CHECK(!o[0].crc_ok && !o[0].reply_undecoded && o[0].pdu_type == "CONNECT_IND" && o[0].rx_addr == A);
+		const Packet &r = o.back();
+		CHECK(r.reply_undecoded && !r.crc_ok && r.pdu_type == "REPLY_UNDECODED");
+		CHECK(r.rx_addr == A && r.reply_to == "ADV_IND" && r.guess == "CONNECT_IND" && r.addr == B);
+		CHECK(std::fabs(r.reply_gap_us - 150) < 0.05 && std::fabs(r.reply_us - 352) < 0.05);
+		CHECK(std::fabs(r.reply_onset_us - 147.6) < 0.05 && r.reply_fits == "CONNECT_IND");
+		CHECK(r.ble_channel == 37 && r.rf_channel == 0 && r.sync_bit == LR && r.pdu.empty() && r.air.empty());
+		CHECK(std::fabs(r.t_stream - ts) < 1e-9 && r.sample_index == (uint64_t)std::llround(ts * 160e6));
+		CHECK(r.frame_pdu.size() == 36 && r.frame_air.size() == 39 && r.frame_pdu[0] == conn[0]);
+		std::string js = packet_to_json(r);
+		CHECK(js.find(",\"aa\":\"8e89bed6\",\"crc_ok\":false,\"pdu_type\":\"REPLY_UNDECODED\",\"rx_addr\":\"" + A +
+			      "\",\"reply_to\":\"ADV_IND\",\"reply_gap_us\":150.0,\"reply_us\":352.0,"
+			      "\"reply_onset_us\":147.6,\"reply_fits\":\"CONNECT_IND\",\"rssi_dbfs\":") != std::string::npos);
+		CHECK(js.find(",\"guess\":\"CONNECT_IND\",\"addr\":\"" + B + "\",\"tx_add\":1,\"rx_add\":0,\"pdu_len\":34,"
+			      "\"pdu\":\"" + hex(r.frame_pdu) + "\",\"air\":\"" + hex(r.frame_air) + "\"") != std::string::npos);
+		CHECK(ends_with(js, ",\"aa_errors\":0,\"sync_bit\":12}"));
+		CHECK(js.find("crc_init") == std::string::npos && js.find("crc_rx") == std::string::npos);
+		CHECK(stats_are(ll, 1, 0, 1));
+		// the record is not a packet: the pcap writer skips it
+		std::string pp = tmp_path(".pcap");
+		std::FILE *pf = std::fopen(pp.c_str(), "wb");
+		CHECK(pf != nullptr);
+		if (pf) {
+			PcapWriter pw(pf);
+			pw.write(r);
+			pw.flush();
+			CHECK_EQ(std::ftell(pf), 24L);
+			std::fclose(pf);
+		}
+		std::remove(pp.c_str());
+	}
+	{	// energy with no frame (sync destroyed): a record without guess / addr
+		LinkLayer ll;
+		double ts = advert(ll, 39, t + 0.03, adv_ind);
+		auto o = noise(ll, 39, ts, LR + 352 + 4);
+		CHECK_EQ(o.size(), 1u);
+		if (o.size() == 1) {
+			const Packet &r = o[0];
+			CHECK(r.reply_undecoded && r.rx_addr == A && r.guess.empty() && r.addr.empty() && r.frame_pdu.empty());
+			CHECK(std::fabs(r.reply_gap_us - 150) < 0.05 && std::fabs(r.reply_us - 352) < 0.05);
+			CHECK(r.ble_channel == 39 && r.rf_channel == 39 && r.reply_fits == "CONNECT_IND");
+			std::string js = packet_to_json(r);
+			CHECK(js.find("guess") == std::string::npos && js.find("\"addr\"") == std::string::npos &&
+			      js.find("\"pdu\"") == std::string::npos && ends_with(js, ",\"cfo_khz\":12.3,\"sync_bit\":12}"));
+		}
+		CHECK(stats_are(ll, 1, 0, 1));
+		// a corrupted SCAN_REQ 1.75 us early (a strong carrier read early), CRC failure in the
+		// AdvA field: still a record, length 176
+		ts = advert(ll, 39, t + 0.04, adv_ind);
+		o = reply(ll, 39, ts - 1.75e-6, scan_req, 9, LR, 4);
+		CHECK(o.size() == 1 && o[0].reply_undecoded && o[0].guess == "SCAN_REQ" && o[0].addr == B &&
+		      o[0].reply_fits == "SCAN_REQ");
+		if (o.size() == 1)
+			CHECK(std::fabs(o[0].reply_gap_us - 148.25) < 0.05 && std::fabs(o[0].reply_us - 176) < 0.05);
+		CHECK(stats_are(ll, 2, 0, 2));
+	}
+	{	// unrelated burst 1 ms later: none, and the slot is closed
+		LinkLayer ll;
+		double ts = advert(ll, 37, t + 0.05, adv_ind);
+		CHECK(noise(ll, 37, ts + 1e-3, 300).empty());
+		CHECK(reply(ll, 37, ts + 1.4e-3, conn, 20).empty());
+		CHECK(stats_are(ll, 1, 0, 0));
+		// just outside the onset window (onset 4 us after T_IFS): none
+		ts = advert(ll, 37, t + 0.06, adv_ind);
+		CHECK(noise(ll, 37, ts + 4e-6 + 2.4e-6, 300).empty());
+		CHECK(stats_are(ll, 2, 0, 0));
+	}
+	{	// bursts on other channels at T_IFS: none; the advert's own channel still answers
+		LinkLayer ll;
+		double ts = advert(ll, 37, t + 0.07, adv_ind);
+		CHECK(noise(ll, 38, ts, 300).empty());
+		CHECK(noise(ll, 5, ts, 300).empty());
+		CHECK(reply(ll, 39, ts, conn, 20).empty());
+		auto o = reply(ll, 37, ts, conn, 20);
+		CHECK(o.size() == 1 && o[0].reply_undecoded && o[0].ble_channel == 37);
+		CHECK(stats_are(ll, 1, 0, 1));
+	}
+	{	// the first burst that starts in the slot consumes it
+		LinkLayer ll;
+		double ts = advert(ll, 38, t + 0.08, adv_ind);
+		auto o = noise(ll, 38, ts - 20e-6, 40, 0);	// onset 10.4 us before T_IFS, 40 us long
+		CHECK(o.size() == 1 && o[0].reply_undecoded);
+		if (o.size() == 1)	// from T_IFS to the end of its energy
+			CHECK(std::fabs(o[0].reply_gap_us - 150) < 0.05 && std::fabs(o[0].reply_us - 16) < 0.05);
+		CHECK(reply(ll, 38, ts + 40e-6, conn, 20).empty());
+		CHECK(stats_are(ll, 1, 0, 1));
+	}
+	{	// a burst in the slot that decodes a CRC-good packet is no undecoded reply (FOLLOW.md):
+		// another advertiser's ADV_NONCONN_IND 20 us before T_IFS; a SCAN_REQ to someone else at
+		// T_IFS (not an answer either)
+		LinkLayer ll;
+		double ts = advert(ll, 37, t + 0.09, adv_ind);
+		auto o = reply(ll, 37, ts - 20e-6, adv_pdu(2, 1, 0, cat(kAddrB, {0x02, 0x01, 0x06})));
+		CHECK(o.size() == 1 && o[0].crc_ok && o[0].pdu_type == "ADV_NONCONN_IND");
+		ts = advert(ll, 37, t + 0.1, adv_ind);
+		o = reply(ll, 37, ts, adv_pdu(3, 1, 0, cat(kAddrB, kAddrB)));
+		CHECK(o.size() == 1 && o[0].crc_ok && o[0].pdu_type == "SCAN_REQ" && o[0].rx_addr == B);
+		CHECK(stats_are(ll, 2, 0, 0));
+	}
+	{	// merged into the advert's burst (energy in the 150 us gap): a frame at T_IFS answers it
+		LinkLayer ll;
+		auto merged = [&](double tb, const std::vector<uint8_t> &rpdu, int flip) {
+			auto rair = make_air(rpdu, kAdvCrcInit, 38);
+			if (flip >= 0)
+				rair[flip] ^= 0x04;
+			auto bits = make_bits(kAdvAccessAddress, make_air(adv_ind, kAdvCrcInit, 38), 4, 150);
+			auto rb = make_bits(kAdvAccessAddress, rair, 0, 60);
+			bits.insert(bits.end(), rb.begin(), rb.end());
+			return feed(ll, make_burst(38, tb, {bits}));
+		};
+		auto o = merged(t + 0.11, scan_req, -1);
+		CHECK(o.size() == 2 && o[1].crc_ok && o[1].pdu_type == "SCAN_REQ");
+		CHECK(stats_are(ll, 1, 1, 0));
+		o = merged(t + 0.12, scan_req, 9);
+		CHECK(o.size() == 2 && o[0].crc_ok && o[1].reply_undecoded);	// the advert, then the record
+		if (o.size() == 2) {
+			const Packet &r = o[1];
+			CHECK(r.guess == "SCAN_REQ" && r.addr == B && r.rx_addr == A && r.sync_bit == 4 + 152 + 150);
+			// the frame bounds the length though the burst runs on; no onset: the burst began earlier
+			CHECK(std::fabs(r.reply_gap_us - 150) < 0.05 && std::fabs(r.reply_us - 176) < 0.05);
+			CHECK(!std::isfinite(r.reply_onset_us) && packet_to_json(r).find("reply_onset_us") == std::string::npos);
+		}
+		CHECK(stats_are(ll, 2, 1, 1));
+	}
+	{	// ADV_SCAN_IND and ADV_DIRECT_IND slots; a non-inviting advert opens none
+		LinkLayer ll;
+		double ts = advert(ll, 39, t + 0.13, adv_pdu(6, 1, 0, cat(kAddrA, {0x02, 0x01, 0x06})));
+		auto o = reply(ll, 39, ts, scan_req, 9);
+		CHECK(o.size() == 1 && o[0].reply_to == "ADV_SCAN_IND" && o[0].guess == "SCAN_REQ");
+		ts = advert(ll, 39, t + 0.14, adv_pdu(1, 1, 0, cat(kAddrA, kAddrB)));
+		o = reply(ll, 39, ts, conn, 20);
+		CHECK(o.size() == 1 && o[0].reply_to == "ADV_DIRECT_IND" && o[0].rx_addr == A);
+		ts = advert(ll, 39, t + 0.15, adv_pdu(2, 1, 0, cat(kAddrA, {0x02, 0x01, 0x06})));
+		CHECK(reply(ll, 39, ts, conn, 20).empty());
+		CHECK(stats_are(ll, 2, 0, 2));
+	}
+	{	// long-burst segments (demod: 2.2 ms overlap): the advert decoded again in the next segment
+		// opens no second slot, an earlier advert decoded again none either, and a segment that
+		// begins in the onset window is no energy onset
+		LinkLayerConfig cfg;
+		cfg.sync_window_bits = INT_MAX;
+		LinkLayer ll(cfg);
+		auto adv_bits = make_bits(kAdvAccessAddress, make_air(adv_ind, kAdvCrcInit, 37), 0, 0);
+		auto req_air = make_air(scan_req, kAdvCrcInit, 37);
+		req_air[9] ^= 0x04;
+		auto req_bits = make_bits(kAdvAccessAddress, req_air, 0, 0);
+		std::vector<uint8_t> v;
+		push_noise(v, 4000);
+		std::copy(adv_bits.begin(), adv_bits.end(), v.begin() + 1500);	// T_IFS at 1802: noise
+		std::copy(adv_bits.begin(), adv_bits.end(), v.begin() + 2000);	// T_IFS at 2302: the frame
+		std::copy(req_bits.begin(), req_bits.end(), v.begin() + 2302);
+		const double ta = t + 0.16;
+		auto o = feed(ll, make_burst(37, ta, {v}));
+		CHECK(o.size() == 3 && o[2].reply_undecoded && o[2].sync_bit == 2302);
+		CHECK(stats_are(ll, 2, 0, 1));
+		std::vector<uint8_t> v2(v.begin() + 1000, v.end());	// the next segment
+		push_noise(v2, 3000);
+		o = feed(ll, make_burst(37, ta + 1000e-6, {v2}));
+		CHECK(o.size() == 2 && !o[0].reply_undecoded && !o[1].reply_undecoded);	// adverts only
+		CHECK(stats_are(ll, 2, 0, 1));
+		// a later long burst: an advert near its end, noise at its T_IFS; the next segment starts
+		// (before that burst ends) with its onset point in the window: no record
+		std::vector<uint8_t> v3;
+		push_noise(v3, 4000);
+		std::copy(adv_bits.begin(), adv_bits.end(), v3.begin() + 3000);
+		const double tb3 = ta + 8000e-6;
+		o = feed(ll, make_burst(37, tb3, {v3}));
+		CHECK(o.size() == 1 && o[0].crc_ok);
+		std::vector<uint8_t> v4;
+		push_noise(v4, 3000);
+		o = feed(ll, make_burst(37, tb3 + (3000 + 152 + 150 - 9.6 - 2) * 1e-6, {v4}));
+		CHECK(o.empty());
+		CHECK(stats_are(ll, 3, 0, 1));
+	}
+	{	// switched off: config field and the process default (--no-reply-slots)
+		LinkLayerConfig cfg;
+		CHECK(cfg.reply_slots);
+		cfg.reply_slots = false;
+		LinkLayer ll(cfg);
+		double ts = advert(ll, 37, t + 0.2, adv_ind);
+		CHECK(reply(ll, 37, ts, conn, 20).empty());
+		CHECK(noise(ll, 37, ts + 0.01, 300).empty());
+		CHECK(stats_are(ll, 0, 0, 0));
+		set_reply_slots_default(false);
+		CHECK(!LinkLayerConfig{}.reply_slots);
+		LinkLayer ll2;
+		ts = advert(ll2, 37, t + 0.21, adv_ind);
+		CHECK(reply(ll2, 37, ts, conn, 20).empty());
+		set_reply_slots_default(true);
+		CHECK(LinkLayerConfig{}.reply_slots);
+	}
+	std::printf("reply slots: decoded CONNECT_IND / SCAN_REQ, corrupted reply -> one REPLY_UNDECODED "
+		    "(AdvA, gap, length, guess, InitA; with and without --emit-bad-crc; not in pcap), "
+		    "energy-only record, unrelated burst 1 ms later / outside the window, other channels, "
+		    "first burst consumes, CRC-good traffic in the slot, merged reply, ADV_SCAN_IND / "
+		    "ADV_DIRECT_IND, long-burst segments, off switch ok\n");
+}
+
 // ---- 4. JSON + pcap, checked by an independent python reader ----
 
 static const char *kPyCheck = R"PY(
-import json, struct, sys
+import json, re, struct, sys
 ALLOWED = set("ts t_stream run sdr kind rf_channel channel freq_mhz phy aa crc_ok crc_init "
               "crc_init_confirmed crc_rx crc_calc pdu_type addr tx_add rx_add pdu_len rssi_dbfs "
               "noise_dbfs cfo_khz name apple ibeacon_uuid company_id adv_data pdu air llid nesn sn "
-              "md ctrl_opcode connect".split())
+              "md ctrl_opcode connect "
+              # FOLLOW.md section 1
+              "rx_addr dir chsel adv_mode aux_channel aux_phy aux_offset_us adi_sid adi_did tx_power "
+              "sync_bit aa_errors".split())
+REPLY_REQ = set("ts t_stream run sdr kind rf_channel channel freq_mhz phy aa crc_ok pdu_type rx_addr "
+                "reply_to reply_gap_us reply_us rssi_dbfs noise_dbfs cfo_khz sync_bit".split())
+REPLY_OPT = set("reply_onset_us reply_fits guess addr tx_add rx_add pdu_len pdu air aa_errors".split())
+ADDR = re.compile(r"^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
+def check_reply(j):
+    assert REPLY_REQ <= set(j) <= REPLY_REQ | REPLY_OPT, set(j) ^ REPLY_REQ
+    assert j["kind"] == "adv" and j["channel"] in (37, 38, 39) and j["aa"] == "8e89bed6"
+    assert j["crc_ok"] is False and ADDR.match(j["rx_addr"])
+    assert j["reply_to"] in ("ADV_IND", "ADV_SCAN_IND", "ADV_DIRECT_IND")
+    assert 145 <= j["reply_gap_us"] <= 156 and j["reply_us"] >= 0 and isinstance(j["sync_bit"], int)
+    assert j.get("reply_fits") in (None, "SCAN_REQ", "CONNECT_IND")
+    assert j.get("guess") in (None, "", "SCAN_REQ", "CONNECT_IND")
+    frame = {"pdu", "air", "pdu_len", "aa_errors"}
+    assert frame <= set(j) or not (frame | {"guess", "addr", "tx_add", "rx_add"}) & set(j)
+    if "pdu" in j:
+        pdu = bytes.fromhex(j["pdu"]); air = bytes.fromhex(j["air"])
+        assert len(air) == len(pdu) + 3 and j["pdu_len"] == pdu[1]
+    if "addr" in j: assert ADDR.match(j["addr"])
 def rf_to_ble(rf):
     return 37 if rf == 0 else 38 if rf == 12 else 39 if rf == 39 else (rf - 1 if rf < 12 else rf - 2)
 def crc_spec(data, init):
@@ -984,11 +1377,20 @@ def crc_spec(data, init):
     return r
 def rbpb(v):  # Wireshark's reverse_bits_per_byte
     return sum(int('{:08b}'.format((v >> (8 * k)) & 0xFF)[::-1], 2) << (8 * k) for k in range(4))
-js = [json.loads(l) for l in open(sys.argv[1])]
-for j in js:
-    assert set(j) <= ALLOWED, set(j) - ALLOWED
+lines = [json.loads(l) for l in open(sys.argv[1])]
+js, nrep = [], 0       # js: the packets (REPLY_UNDECODED records are not packets: no pcap record)
+for j in lines:
     assert j["sdr"] == "w1700k" and j["phy"] == "1M" and j["kind"] in ("adv", "data")
     assert j["freq_mhz"] == 2402 + 2 * j["rf_channel"] and j["channel"] == rf_to_ble(j["rf_channel"])
+    if j.get("pdu_type") == "REPLY_UNDECODED":
+        check_reply(j)
+        nrep += 1
+        continue
+    js.append(j)
+    assert set(j) <= ALLOWED, set(j) - ALLOWED
+    assert isinstance(j["sync_bit"], int) and j["aa_errors"] in (0, 1)
+    if "rx_addr" in j: assert ADDR.match(j["rx_addr"]) and j["kind"] == "adv"
+    assert (j["kind"] == "data") == ("dir" in j) and j.get("dir", 0) in (0, 1)
     for k in ("aa", "crc_init", "crc_rx", "crc_calc", "pdu", "air", "adv_data"):
         if k in j: int(j[k], 16); assert j[k] == j[k].lower()
     assert len(j["aa"]) == 8 and len(j["crc_init"]) == 6
@@ -1032,7 +1434,9 @@ while off < len(f):
     if flags & 0x0800:
         assert crc_spec(pdu, int(j["crc_init"], 16)) == ws_crc
 assert n == len(js), (n, len(js))
-print("python: %d JSON lines valid, %d pcap records match (CRC as Wireshark reads it)" % (len(js), n))
+assert nrep >= 10, nrep
+print("python: %d JSON lines valid (%d REPLY_UNDECODED records), %d pcap records match (CRC as "
+      "Wireshark reads it)" % (len(lines), nrep, n))
 )PY";
 
 static std::string tmp_path(const char *suffix)
@@ -1106,19 +1510,31 @@ static void bench()
 		bursts.push_back(make_burst(ch, t, std::move(ph)));
 		t += 2e-5;
 	}
-	LinkLayer ll;
-	std::vector<Packet> out;
-	auto t0 = std::chrono::steady_clock::now();
-	for (auto &b : bursts) {
-		out.clear();
-		ll.on_burst(b, out);
+	// The default sync window (40 bits), then the pipeline's (the whole burst: every position of
+	// every phase is scanned on noise).
+	uint64_t adv_ok = 0;
+	for (int whole = 0; whole < 2; whole++) {
+		LinkLayerConfig cfg;
+		if (whole)
+			cfg.sync_window_bits = INT_MAX;
+		LinkLayer ll(cfg);
+		std::vector<Packet> out;
+		auto t0 = std::chrono::steady_clock::now();
+		for (auto &b : bursts) {
+			out.clear();
+			ll.on_burst(b, out);
+		}
+		double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+		double rate = N / s;
+		std::printf("bench: %d bursts (4 phases, 90%% noise of 80..2200 bits), sync window %s, in %.1f ms = "
+			    "%.0f bursts/s (%.2f us/burst), adv_ok %llu\n",
+			    N, whole ? "whole burst" : "40 bits", s * 1e3, rate, s / N * 1e6,
+			    (unsigned long long)ll.stats().adv_ok);
+		CHECK(rate > (whole ? 50000 : 200000));
+		if (whole)	// the real packets lead their bursts: the window changes nothing for them
+			CHECK_EQ(ll.stats().adv_ok, adv_ok);
+		adv_ok = ll.stats().adv_ok;
 	}
-	double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-	double rate = N / s;
-	std::printf("bench: %d bursts (4 phases, 90%% noise of 80..2200 bits) in %.1f ms = %.0f "
-		    "bursts/s (%.2f us/burst), adv_ok %llu\n",
-		    N, s * 1e3, rate, s / N * 1e6, (unsigned long long)ll.stats().adv_ok);
-	CHECK(rate > 20000);
 }
 
 // Regressions: a long segment, earlier packets in weaker phases, and >32 packets.
@@ -1177,6 +1593,8 @@ int main()
 	test_ext_adv();
 	test_adv_misc();
 	test_noise();
+	test_follow_keys();
+	test_reply_slots();
 	test_json_pcap();
 	bench();
 	std::printf("test_ll: %d checks, %d failures\n", g_checks, g_fail);

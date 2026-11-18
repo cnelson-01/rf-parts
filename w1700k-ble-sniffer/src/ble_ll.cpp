@@ -32,6 +32,53 @@ constexpr double kBit = 1e-6;			// LE 1M bit time
 constexpr double kTifs = 150e-6;
 constexpr int kDemoteFails = 16;		// consecutive CRC failures that un-confirm a blind AA
 
+// Reply slots (FOLLOW.md section 1). A Burst carries no onset field, so the link layer reads the
+// energy's start and end off the bit vector, from how demod.cpp's ChannelDetector builds it
+// (4 samples per bit):
+//  - bit_phases[0][0]'s symbol period starts pre_symbols (10) symbols before the detected onset,
+//    plus the chosen sampling phase (0..3 samples): the onset is at bit 10 - order[0] / 4, i.e.
+//    9.25..10 (kOnsetBit = 9.6, +-0.4 us).
+//  - that onset is the first sample of the first 2 us window (kW = 8) whose mean power crosses
+//    the threshold (8 dB): a strong signal crosses it with its first sample, so the onset reads up
+//    to 1.75 us early (a weak one ~0.5 us late). And a transmitter keys its carrier up before its
+//    first preamble bit by a device-specific time. On the six real captures in captures/ (6 s at
+//    160 Msps, 1532 CRC-good adv packets that start their burst cleanly) the first preamble bit
+//    sits 1.4..3.4 us after the detected onset for most devices, 7-8, 11-12 and 13-14 us for
+//    others (13-14 for the busiest scanner there), 29-30 us for one (B0:B9:50:E8:43:7B).
+//  - the samples run on kHold (8) + kW - 1 (7) frames past the end of the energy and the last
+//    bit takes whole symbols, so the vector ends 2.75..3.5 bits after the energy falls; the
+//    transmitter's ramp-down and the channel filter add ~1 us after the CRC's last bit (decoded
+//    SCAN_REQs read 0.9 us long with 3.1): kTailBits = 4 makes a clean reply read its PDU length.
+// Windows, both relative to (the advert's last bit + T_IFS):
+//  - preamble (a decoded packet or a CRC-failed adv-AA frame answers the slot): -4/+4 us. 312
+//    decoded SCAN_REQ / CONNECT_IND answering the channel's last advert started 149.0..152.0 us
+//    after it (the spec's 150 +- 2, and both ends are timed to the bit).
+//  - onset (a burst that starts here consumes the slot, as FOLLOW.md asks): -32/+3 us. The early
+//    side is the slowest carrier lead seen (30 us) plus T_IFS and timing slack; the late side is
+//    T_IFS's +2 less the shortest lead plus a weak signal's late detection. Unrelated burst onsets
+//    land in a window at ~0.09 % of slots per us on those captures (3 % for this one, against
+//    ~8 % real reply onsets); a narrower window would miss slow-ramp centrals, which the follow
+//    view cares about more (REPLY_UNDECODED's reply_us / reply_fits tell a 352 us CONNECT_IND
+//    apart from an unrelated burst). The direction logic's -20/+25 us compares two decoded
+//    preambles of a known connection and needs neither the ramp allowance nor tightness.
+// Most replies on a busy band are not their own burst's start: 56 % of those decoded were merged
+// into the advert's burst (energy in the 150 us gap) and many more sat in a burst that started
+// earlier, so a slot is also answered, inside any burst, by a frame that starts in the preamble
+// window (decoded, or a CRC-failed adv-AA frame: a REPLY_UNDECODED record with its guess).
+// Outcomes per slot (LinkLayerStats): decoded = a CRC-good SCAN_REQ / CONNECT_IND to the
+// advertiser in the preamble window; undecoded = a CRC-failed adv-AA frame there, or a burst that
+// started in the onset window and from which no CRC-good packet came (FOLLOW.md's rule: other
+// decodable traffic in the slot is not an undecoded reply); otherwise unanswered.
+constexpr double kOnsetBit = 9.6;
+constexpr double kTailBits = 4.0;
+constexpr double kOnsetEarly = 32e-6, kOnsetLate = 3e-6;
+constexpr double kPreEarly = 4e-6, kPreLate = 4e-6;
+constexpr double kFitUs = 10;			// reply_fits: |reply_us - PDU length| <= this
+// demod.cpp cuts a burst longer than 2.2 ms into segments that overlap by 2.2 ms; a burst whose
+// onset lies this far before the previous burst's end on its channel is such a segment.
+constexpr double kSegmentOverlap = 100e-6;
+bool g_reply_slots_default = true;
+
 struct Tables {
 	uint8_t rev8[256];
 	uint32_t crc[256];		// reflected-register byte table
@@ -340,6 +387,9 @@ struct Json {
 
 }  // namespace
 
+bool reply_slots_default() { return g_reply_slots_default; }
+void set_reply_slots_default(bool on) { g_reply_slots_default = on; }
+
 // ---- primitives ----
 
 void whiten(uint8_t *data, size_t len, int ble_channel)
@@ -470,6 +520,12 @@ struct LinkLayer::Impl {
 	LinkLayerConfig cfg;
 	LinkLayerStats st;
 	std::unordered_map<uint32_t, AaEntry> aas;
+	// A one-hash Bloom filter over the keys of aas (set on insert, rebuilt by expire() after
+	// erasures): most sync candidates' AAs are noise, and a bit test is cheaper than the lookup.
+	std::vector<uint64_t> aa_filter = std::vector<uint64_t>(1024);
+	static unsigned aa_slot(uint32_t aa) { return (aa * 0x9E3779B1u) >> 16; }
+	void aa_filter_add(uint32_t aa) { aa_filter[aa_slot(aa) >> 6] |= 1ull << (aa_slot(aa) & 63); }
+	bool aa_filter_has(uint32_t aa) const { return aa_filter[aa_slot(aa) >> 6] >> (aa_slot(aa) & 63) & 1; }
 	std::deque<AuxPending> aux;
 	double scan_req_end[40];
 	static constexpr size_t kMaxFallbacks = 32;
@@ -482,6 +538,33 @@ struct LinkLayer::Impl {
 	uint64_t run = 0;
 	double base = 0, last_mono = 0, last_wall = 0, next_sweep = 0;
 	size_t prune_at = 0;
+
+	// Reply slots, one per primary channel (37..39). t_end stays after the slot closes, so the
+	// same advert decoded again (overlapping segments of a long burst) does not open a second one.
+	struct ReplySlot {
+		bool open = false;
+		double t_end = -1;	// mono time of the advert's last bit
+		const char *type = "";
+		std::string adva;
+	};
+	ReplySlot slots[3];
+	double ch_end[3] = {-1, -1, -1};	// mono end of the last burst's bit vector, per channel
+	// The slot the burst being decoded may answer: one whose onset window it started in
+	// (`onset`), or one that opened before it started or earlier in it, which only a frame that
+	// starts at T_IFS answers.
+	struct Watch {
+		bool active = false, onset = false, decoded = false, have_frame = false;
+		bool good = false;	// a CRC-good packet came out of the burst since the watch began
+		double onset_gap = 0;	// the burst's energy onset - the advert's last bit (onset only)
+		ReplySlot s;
+		Packet frame;		// the first adv-AA frame at T_IFS whose CRC failed
+	} w;
+	// The burst being decoded (for records finished in the middle of it) and its records, which
+	// go out after its packets.
+	const Burst *cb = nullptr;
+	int c_rf = 0, c_ch = 0;
+	double c_mono = 0;
+	std::vector<Packet> recs;
 
 	explicit Impl(const LinkLayerConfig &c) : cfg(c)
 	{
@@ -511,6 +594,7 @@ struct LinkLayer::Impl {
 		if (now < next_sweep && aas.size() <= prune_at)
 			return;
 		next_sweep = now + 1.0;
+		const size_t before = aas.size();
 		size_t unconfirmed = 0;
 		for (auto it = aas.begin(); it != aas.end();) {
 			if (cfg.data_aa_ttl_s > 0 && now - it->second.last_seen > cfg.data_aa_ttl_s) {
@@ -538,48 +622,87 @@ struct LinkLayer::Impl {
 					++it;
 				}
 		}
+		if (aas.size() != before) {
+			std::fill(aa_filter.begin(), aa_filter.end(), 0);
+			for (const auto &kv : aas)
+				aa_filter_add(kv.first);
+		}
 		prune_at = aas.size() + std::max<size_t>(cfg.max_blind_aas / 2, 16);
 		aux.erase(std::remove_if(aux.begin(), aux.end(),
 					 [&](const AuxPending &a) { return a.t_hi < now - 0.01; }),
 			  aux.end());
 	}
 
-	// The first preamble + AA candidate whose preamble starts in [pos, to]; pos is left at it.
+	// A preamble + AA candidate whose preamble starts at bit pos (-1: its first bit is missing).
 	// On the primary channels (37/38/39) only the advertising AA is valid; a never-seen data AA
 	// only near the burst start (blind_window_bits).
+	bool sync_at(Packed &p, long pos, bool adv_only, Sync &out)
+	{
+		uint64_t w = p.win(pos < 0 ? 0 : pos);
+		int missing = pos < 0;
+		uint32_t aa = (uint32_t)(w >> (8 - missing));
+		unsigned pre = missing ? (unsigned)(w & 0x7F) << 1 : (unsigned)(w & 0xFF);
+		unsigned mask = missing ? 0xFE : 0xFF;
+		int pa = popc((pre ^ 0xAA) & mask) + missing;	// errors vs 0xAA
+		int p5 = 8 - missing - popc((pre ^ 0xAA) & mask) + missing;	// vs 0x55
+		if (pa > 1 && p5 > 1)
+			return false;
+		int ae = popc(aa ^ kAdvAccessAddress);
+		if (ae <= 1) {
+			if (pa <= 1) {
+				out = {kAdv, pos, aa, kAdvAccessAddress, pa, ae, nullptr};
+				return true;
+			}
+			return false;
+		}
+		int pe = (aa & 1) ? p5 : pa;
+		if (pe > 1 || adv_only)
+			return false;
+		if (!aas.empty() && aa_filter_has(aa)) {
+			auto it = aas.find(aa);
+			if (it != aas.end()) {
+				out = {it->second.confirmed ? kKnown : kSeen, pos, aa, aa, pe, 0, &it->second};
+				return true;
+			}
+		}
+		if (pe == 0 && pos <= cfg.blind_window_bits && aa_plausible(aa)) {
+			out = {kBlind, pos, aa, aa, 0, 0, nullptr};
+			return true;
+		}
+		return false;
+	}
+
+	// The first sync_at() candidate in [pos, to]; pos is left at it. Most positions fail the
+	// preamble test (8 bits within one error of 0xAA or 0x55), which is evaluated for 50 positions
+	// at a time first: with y = bits ^ 0101..., a position passes iff y holds <= 1 or >= 7 ones in
+	// its 8 bits.
 	bool next_sync(Packed &p, long &pos, long to, bool adv_only, Sync &out)
 	{
-		for (; pos <= to && pos + 40 <= p.n; pos++) {
-			uint64_t w = p.win(pos < 0 ? 0 : pos);
-			int missing = pos < 0;
-			uint32_t aa = (uint32_t)(w >> (8 - missing));
-			unsigned pre = missing ? (unsigned)(w & 0x7F) << 1 : (unsigned)(w & 0xFF);
-			unsigned mask = missing ? 0xFE : 0xFF;
-			int pa = popc((pre ^ 0xAA) & mask) + missing;	// errors vs 0xAA
-			int p5 = 8 - missing - popc((pre ^ 0xAA) & mask) + missing;	// vs 0x55
-			if (pa > 1 && p5 > 1)
-				continue;
-			int ae = popc(aa ^ kAdvAccessAddress);
-			if (ae <= 1) {
-				if (pa <= 1) {
-					out = {kAdv, pos, aa, kAdvAccessAddress, pa, ae, nullptr};
-					return true;
-				}
-				continue;
-			}
-			int pe = (aa & 1) ? p5 : pa;
-			if (pe > 1 || adv_only)
-				continue;
-			if (!aas.empty()) {
-				auto it = aas.find(aa);
-				if (it != aas.end()) {
-					out = {it->second.confirmed ? kKnown : kSeen, pos, aa, aa, pe, 0, &it->second};
-					return true;
-				}
-			}
-			if (pe == 0 && pos <= cfg.blind_window_bits && aa_plausible(aa)) {
-				out = {kBlind, pos, aa, aa, 0, 0, nullptr};
+		const long last = std::min(to, p.n - 40);
+		if (pos < 0) {
+			if (pos <= last && sync_at(p, pos, adv_only, out))
 				return true;
+			pos = 0;
+		}
+		constexpr int kSpan = 50;	// win() holds >= 57 valid bits: 50 windows of 8
+		for (; pos <= last; pos += kSpan) {
+			const uint64_t y = p.win(pos) ^ 0xAAAAAAAAAAAAAAAAull;
+			auto at_most_one = [](uint64_t a) {	// bit j: a[j .. j + 8) has <= 1 ones
+				uint64_t o = a | a >> 1, t = a & a >> 1;
+				t = t | t >> 2 | (o & o >> 2);
+				o = o | o >> 2;
+				t = t | t >> 4 | (o & o >> 4);
+				return ~t;
+			};
+			uint64_t m = (at_most_one(y) | at_most_one(~y)) & ((1ull << kSpan) - 1);
+			if (last - pos < kSpan - 1)
+				m &= (2ull << (last - pos)) - 1;
+			for (; m; m &= m - 1) {
+				const long q = pos + __builtin_ctzll(m);
+				if (sync_at(p, q, adv_only, out)) {
+					pos = q;
+					return true;
+				}
 			}
 		}
 		return false;
@@ -738,6 +861,32 @@ struct LinkLayer::Impl {
 			rf = ble_to_rf_channel(ch);
 		double mono = mono_time(b);
 		expire(mono);
+		// The channel's reply slot, by this burst's onset: the first burst that starts in the onset
+		// window consumes it; one that starts after it closes it unanswered; one that started
+		// before it leaves it open, and answers it only with a frame at T_IFS. A later segment of
+		// a long burst (it starts max_us = 2.2 ms before the previous segment's end) has no energy
+		// onset at kOnsetBit: it never counts as starting in the window.
+		w.active = false;
+		if (cfg.reply_slots && ch >= 37) {
+			cb = &b;
+			c_rf = rf;
+			c_ch = ch;
+			c_mono = mono;
+			ReplySlot &sl = slots[ch - 37];
+			double &prev_end = ch_end[ch - 37];
+			const double onset = mono + kOnsetBit * kBit;
+			const bool segment = onset < prev_end - kSegmentOverlap;
+			prev_end = std::max(prev_end, mono + (double)b.bit_phases[0].size() * kBit);
+			if (sl.open) {
+				double d = onset - (sl.t_end + kTifs);
+				if (d > kOnsetLate) {
+					sl.open = false;
+				} else {
+					watch(sl, !segment && d >= -kOnsetEarly);
+					w.onset_gap = d + kTifs;
+				}
+			}
+		}
 		size_t np = b.bit_phases.size();
 		if (pk.size() < np)
 			pk.resize(np);
@@ -780,12 +929,160 @@ struct LinkLayer::Impl {
 				st.no_sync++;
 		}
 		st.aas_tracked = aas.size();
+		if (w.active)
+			watch_end();
+		if (!recs.empty()) {
+			for (Packet &r : recs)
+				out.push_back(std::move(r));
+			recs.clear();
+		}
+	}
+
+	// Wideband sample index of a point dt after the burst's bit 0 (as emit() places packets).
+	uint64_t sample_at(const Burst &b, double dt) const
+	{
+		double fs = cfg.sample_rate > 0 ? cfg.sample_rate
+			  : b.t_stream > 1e-3 ? (double)b.sample_index / b.t_stream : 0;
+		long long ds = std::llround(dt * fs);
+		return ds < 0 && (uint64_t)-ds > b.sample_index ? 0 : b.sample_index + ds;
+	}
+
+	void watch(ReplySlot &sl, bool onset)
+	{
+		w.active = true;
+		w.onset = onset;
+		w.decoded = w.have_frame = w.good = false;
+		w.s = sl;
+		if (onset)
+			sl.open = false;	// consumed by this burst whatever it holds
+	}
+
+	// Every adv-AA packet on 37..39 (CRC good or not), in position order: does it answer the
+	// watched slot (its first preamble bit at T_IFS), does it open a new one?
+	void reply_packet(const Packet &p, double t0, double t1)
+	{
+		const int type = p.pdu.empty() ? -1 : p.pdu[0] & 0x0F;
+		if (w.active && !w.decoded) {
+			double d = t0 - (w.s.t_end + kTifs);
+			if (d >= -kPreEarly && d <= kPreLate) {
+				if (p.crc_ok) {
+					// Decoded: a SCAN_REQ / CONNECT_IND to the advertiser. Any other good packet
+					// there is other traffic in the slot, not an answer.
+					w.decoded = (type == 3 || type == 5) && p.rx_addr == w.s.adva;
+				} else if (!w.have_frame) {
+					w.frame = p;
+					w.have_frame = true;
+				}
+			}
+		}
+		if (!p.crc_ok)
+			return;
+		w.good = true;
+		const char *name = type == 0 ? "ADV_IND" : type == 1 ? "ADV_DIRECT_IND" : type == 6 ? "ADV_SCAN_IND" : nullptr;
+		ReplySlot &sl = slots[c_ch - 37];
+		// Time only moves forward: an advert ending at or before the slot's own advert was decoded
+		// before (the overlap of two segments of a long burst) and is not a new slot.
+		if (!name || p.addr.empty() || t1 <= sl.t_end + 4e-6)
+			return;
+		if (w.active)
+			watch_end();
+		sl.open = true;
+		sl.t_end = t1;
+		sl.type = name;
+		sl.adva = p.addr;
+		st.reply_slots++;
+		watch(sl, false);	// the rest of this burst: a reply the DSP merged into it
+	}
+
+	// The watched slot's outcome for this burst (called at its end, or in its middle when a new
+	// advert opens the next slot): answered and decoded; answered and undecoded (a record) when a
+	// CRC-failed frame starts at T_IFS, or when the burst started in the slot and no CRC-good
+	// packet came out of it (FOLLOW.md's rule; mid-burst the new advert itself is one); or
+	// nothing (a slot that opened before the burst stays open; one it consumed stays closed).
+	void watch_end()
+	{
+		w.active = false;
+		ReplySlot &sl = slots[c_ch - 37];
+		bool same = sl.open && sl.t_end == w.s.t_end;
+		if (w.decoded) {
+			st.reply_decoded++;
+		} else if (w.have_frame || (w.onset && !w.good)) {
+			st.reply_undecoded++;
+			recs.push_back(record());
+		} else {
+			return;
+		}
+		if (same)
+			sl.open = false;
+	}
+
+	// The REPLY_UNDECODED record for the watched slot and the burst being decoded.
+	Packet record()
+	{
+		const Burst &b = *cb;
+		Packet p;
+		if (w.have_frame) {	// that frame's raw facts (its decoded fields are not trusted)
+			Packet &f = w.frame;
+			int type = f.pdu[0] & 0x0F, len = f.pdu[1];
+			p.guess = type == 3 || (type != 5 && len == 12) ? "SCAN_REQ"
+				  : type == 5 || len == 34		 ? "CONNECT_IND"
+									 : "";
+			p.frame_pdu = std::move(f.pdu);
+			p.frame_air = std::move(f.air);
+			p.addr = std::move(f.addr);	// the transmitter: ScanA / InitA (AdvA for adv types)
+			p.tx_add = f.tx_add;
+			p.rx_add = f.rx_add;
+			p.aa_rx = f.aa_rx;
+			p.aa_errors = f.aa_errors;
+			p.preamble_errors = f.preamble_errors;
+			p.phase = f.phase;
+			p.sync_bit = f.sync_bit;
+		}
+		p.kind = PacketKind::Adv;
+		p.rf_channel = c_rf;
+		p.ble_channel = c_ch;
+		p.run_id = b.run_id;
+		p.rssi_dbfs = b.rssi_dbfs;
+		p.noise_dbfs = b.noise_dbfs;
+		p.cfo_hz = b.cfo_hz;
+		p.access_address = kAdvAccessAddress;
+		p.crc_init = kAdvCrcInit;
+		p.reply_undecoded = true;
+		p.pdu_type = "REPLY_UNDECODED";
+		p.reply_to = w.s.type;
+		p.rx_addr = w.s.adva;
+		// The reply's start: the frame's first preamble bit, else the later of the energy onset
+		// and T_IFS after the advert (the carrier comes up before the first preamble bit, by a
+		// device-dependent 1..30 us, so the onset alone reads early). Its end: the end of the
+		// burst's energy, and with a frame no later than the frame's end (its length field may
+		// have bit errors: the earlier of the two is the better bound), so a reply inside a
+		// longer burst reads its own length.
+		const double slot_bit = (w.s.t_end + kTifs - c_mono) / kBit;
+		const double start = w.have_frame ? p.sync_bit : std::max(kOnsetBit, slot_bit);
+		double end = (double)b.bit_phases[0].size() - kTailBits;
+		if (w.have_frame)
+			end = std::min(end, start + 40 + 8.0 * p.frame_air.size());
+		end = std::max(start, end);
+		const double dt = start * kBit;
+		p.sync_bit = (int)std::lround(start);
+		p.t_stream = b.t_stream + dt;
+		p.t_wall = b.t_wall > 0 ? b.t_wall + dt : 0;
+		p.sample_index = sample_at(b, dt);
+		p.reply_gap_us = (float)((c_mono + dt - w.s.t_end) * 1e6);
+		p.reply_us = (float)(end - start);
+		p.reply_onset_us = w.onset ? (float)(w.onset_gap * 1e6) : NAN;
+		p.reply_fits = std::fabs(p.reply_us - 176) <= kFitUs ? "SCAN_REQ"
+			       : std::fabs(p.reply_us - 352) <= kFitUs ? "CONNECT_IND"
+								       : "";
+		w.have_frame = false;
+		return p;
 	}
 
 	// Record a blind CRC-init recovery; returns true once the AA is confirmed with `init`.
 	bool record_blind(uint32_t aa, uint32_t init, uint32_t crc_rx, double now, AaEntry *&ep)
 	{
 		AaEntry &e = aas[aa];
+		aa_filter_add(aa);
 		ep = &e;
 		e.last_seen = now;
 		Cand *c = nullptr;
@@ -829,6 +1126,7 @@ struct LinkLayer::Impl {
 	void learn(uint32_t aa, uint32_t init, Src src, double now)
 	{
 		AaEntry &e = aas[aa];
+		aa_filter_add(aa);
 		if (!e.confirmed || e.init != init || e.src != src) {
 			if (src == kFromConnect && (!e.confirmed || e.init != init))
 				st.connections_seen++;
@@ -852,10 +1150,7 @@ struct LinkLayer::Impl {
 		double dt = s.pos * kBit;
 		p.t_stream = b.t_stream + dt;
 		p.t_wall = b.t_wall > 0 ? b.t_wall + dt : 0;
-		double fs = cfg.sample_rate > 0 ? cfg.sample_rate
-			  : b.t_stream > 1e-3 ? (double)b.sample_index / b.t_stream : 0;
-		long long ds = std::llround(dt * fs);
-		p.sample_index = ds < 0 && (uint64_t)-ds > b.sample_index ? 0 : b.sample_index + ds;
+		p.sample_index = sample_at(b, dt);
 		p.rssi_dbfs = b.rssi_dbfs;
 		p.noise_dbfs = b.noise_dbfs;
 		p.cfo_hz = b.cfo_hz;
@@ -884,6 +1179,8 @@ struct LinkLayer::Impl {
 			} else {
 				st.adv_bad++;
 			}
+			if (cfg.reply_slots && ch >= 37 && s.cls == kAdv)
+				reply_packet(p, t0, t1);
 		} else {
 			AaEntry *e = s.e;
 			if (s.cls == kKnown) {
@@ -961,6 +1258,10 @@ struct LinkLayer::Impl {
 			p.addr = format_bdaddr(a);
 			p.tx_add = txadd;
 		};
+		auto set_rx = [&](const uint8_t *a) {
+			p.rx_addr = format_bdaddr(a);
+			p.rx_add = rxadd;
+		};
 		if (type <= 8) {
 			p.pdu_type = kAdvNames[type];
 		} else {
@@ -980,14 +1281,14 @@ struct LinkLayer::Impl {
 				adn = len - 6;
 			}
 			break;
-		case 1:
+		case 1:		// ADV_DIRECT_IND: AdvA, TargetA
 			p.chsel = chsel;
 			if (len >= 6)
 				set_addr(pl);
 			if (len >= 12)
-				p.rx_add = rxadd;
+				set_rx(pl + 6);
 			break;
-		case 3:
+		case 3:		// (AUX_)SCAN_REQ: ScanA, AdvA
 			if (secondary) {
 				p.pdu_type = "AUX_SCAN_REQ";
 				if (ok)
@@ -996,9 +1297,9 @@ struct LinkLayer::Impl {
 			if (len >= 6)
 				set_addr(pl);
 			if (len >= 12)
-				p.rx_add = rxadd;
+				set_rx(pl + 6);
 			break;
-		case 5:
+		case 5:		// CONNECT_IND / AUX_CONNECT_REQ: InitA, AdvA, LLData
 			if (secondary)
 				p.pdu_type = "AUX_CONNECT_REQ";
 			else
@@ -1006,7 +1307,7 @@ struct LinkLayer::Impl {
 			if (len >= 6)
 				set_addr(pl);
 			if (len >= 12)
-				p.rx_add = rxadd;
+				set_rx(pl + 6);
 			if (ok && len >= 34) {
 				const uint8_t *ll = pl + 12;
 				ConnectInfo &c = p.connect;
@@ -1069,7 +1370,8 @@ struct LinkLayer::Impl {
 					has_adva = true;
 					q += 6;
 				}
-				if (well_formed && take(0x02, 6)) {
+				if (well_formed && take(0x02, 6)) {	// TargetA
+					p.rx_addr = format_bdaddr(pl + q);
 					p.rx_add = rxadd;
 					q += 6;
 				}
@@ -1146,10 +1448,69 @@ const LinkLayerStats &LinkLayer::stats() const { return impl_->st; }
 
 // ---- JSON ----
 
+// Keys after the original schema (FOLLOW.md section 1), appended so existing lines keep their
+// layout: the receiver address, the data direction, header / extended-header fields, sync details.
+static void json_follow_keys(Json &j, const Packet &p)
+{
+	if (!p.rx_addr.empty())
+		j.str("rx_addr", p.rx_addr);
+	if (p.direction >= 0)
+		j.num("dir", p.direction);
+	if (p.chsel >= 0)
+		j.num("chsel", p.chsel);
+	if (p.adv_mode >= 0)
+		j.num("adv_mode", p.adv_mode);
+	if (p.aux_channel >= 0) {
+		j.num("aux_channel", p.aux_channel);
+		j.num("aux_phy", p.aux_phy);
+		j.num("aux_offset_us", p.aux_offset_us);
+	}
+	if (p.adi_did >= 0) {
+		j.num("adi_sid", p.adi_sid);
+		j.num("adi_did", p.adi_did);
+	}
+	if (p.tx_power != 127)
+		j.num("tx_power", p.tx_power);
+}
+
+// REPLY_UNDECODED (see ble_ll.h): not a packet, so no CRC fields; pdu / air / guess / addr only
+// when a frame with the adv AA was found in the burst.
+static std::string reply_to_json(const Packet &p, Json &j)
+{
+	j.lit("crc_ok", "false");
+	j.lit("pdu_type", "\"REPLY_UNDECODED\"");
+	j.str("rx_addr", p.rx_addr);
+	j.str("reply_to", p.reply_to);
+	j.fix("reply_gap_us", p.reply_gap_us, 1);
+	j.fix("reply_us", p.reply_us, 1);
+	j.fix("reply_onset_us", p.reply_onset_us, 1);	// omitted when NaN
+	if (!p.reply_fits.empty())
+		j.str("reply_fits", p.reply_fits);
+	j.fix("rssi_dbfs", p.rssi_dbfs, 1);
+	j.fix("noise_dbfs", p.noise_dbfs, 1);
+	j.fix("cfo_khz", p.cfo_hz / 1000.0, 1);
+	if (!p.guess.empty())
+		j.str("guess", p.guess);
+	if (!p.addr.empty())
+		j.str("addr", p.addr);
+	if (p.tx_add >= 0)
+		j.num("tx_add", p.tx_add);
+	if (p.rx_add >= 0)
+		j.num("rx_add", p.rx_add);
+	if (p.frame_pdu.size() >= 2) {
+		j.num("pdu_len", p.frame_pdu[1]);
+		j.hexb("pdu", p.frame_pdu.data(), p.frame_pdu.size());
+		j.hexb("air", p.frame_air.data(), p.frame_air.size());
+		j.num("aa_errors", p.aa_errors);
+	}
+	j.num("sync_bit", p.sync_bit);
+	return std::move(j.done());
+}
+
 std::string packet_to_json(const Packet &p)
 {
 	Json j;
-	j.s.reserve(512 + 2 * (p.pdu.size() + p.air.size() + p.adv_data.size()));
+	j.s.reserve(512 + 2 * (p.pdu.size() + p.air.size() + p.adv_data.size() + p.frame_air.size()));
 	bool adv = p.kind == PacketKind::Adv;
 	j.fix("ts", p.t_wall, 6);
 	j.fix("t_stream", p.t_stream, 7);
@@ -1164,6 +1525,8 @@ std::string packet_to_json(const Packet &p)
 	}
 	j.lit("phy", "\"1M\"");
 	j.hexv("aa", p.access_address, 8);
+	if (p.reply_undecoded)
+		return reply_to_json(p, j);
 	j.boolean("crc_ok", p.crc_ok);
 	j.hexv("crc_init", p.crc_init, 6);
 	j.boolean("crc_init_confirmed", p.crc_init_confirmed);
@@ -1223,6 +1586,9 @@ std::string packet_to_json(const Packet &p)
 		j.key("connect");
 		j.s += k.done();
 	}
+	json_follow_keys(j, p);
+	j.num("sync_bit", p.sync_bit);
+	j.num("aa_errors", p.aa_errors);
 	return std::move(j.done());
 }
 
@@ -1271,7 +1637,7 @@ PcapWriter::PcapWriter(std::FILE *f) : f_(f)
 
 void PcapWriter::write(const Packet &p)
 {
-	if (!f_)
+	if (!f_ || p.reply_undecoded)
 		return;
 	bool adv = p.kind == PacketKind::Adv;
 	uint16_t flags = kLeDewhitened;

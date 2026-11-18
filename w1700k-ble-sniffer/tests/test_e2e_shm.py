@@ -1,16 +1,19 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: MIT
 """The shared-memory path end to end, with build/fake_shm standing in for w1700k-stream (object
-/w1700k-ble-test; the real /w1700k-stream is never touched):
+/w1700k-ble-test-PID; the real /w1700k-stream is never touched):
 
   clean     the file published once: packets decode as from the file, times match the truth
   lost      a LOST slot every 97 and an EVENT slot every 50 slices: zero-filled, same run,
             counted; packet times after them still match the truth (events carry no time)
-  new-run   the service starts run 2 midway: the sniffer starts a new run (runs = 2)
+  new-run   the service starts run 2 midway: the sniffer finishes run 1's published slots, then
+            starts a new run (runs = 2); every published sample is delivered
   behind    published 4x faster than real time into a small ring with one channelizer thread:
             the sniffer falls behind, resyncs (counted, `behind` reported), and keeps decoding
 
   /usr/bin/python3 tests/test_e2e_shm.py [-v]
+Binaries: $W1700K_BLE_BUILD (default build/). $W1700K_BLE_SHM_SPEED (default 1) publishes slower
+or faster than real time (e.g. 0.25 under a sanitizer).
 """
 import json
 import os
@@ -30,12 +33,26 @@ RATE, LO = 160e6, 2441e6
 SLICE = 2048
 
 
+def wait_for_shm(name, timeout=10.0):
+    """Until fake_shm has created its object (a freshly built binary can take a while to start on
+    macOS). Opened read-only with _posixshmem: multiprocessing.shared_memory would unlink it at exit."""
+    import _posixshmem
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        try:
+            os.close(_posixshmem.shm_open(name, os.O_RDONLY, 0))
+            return True
+        except OSError:
+            time.sleep(0.05)
+    return False
+
+
 def run_scenario(iq, fake_args, sniff_args, duration):
     fake = subprocess.Popen([FAKE, '--input', iq, '--rate', repr(RATE), '--name', NAME, '--delay', '1.0',
                              '--linger', '2', '--clock', 'uptime',
                              '--speed', os.environ.get('W1700K_BLE_SHM_SPEED', '1')] + fake_args, stdout=subprocess.PIPE)
     try:
-        time.sleep(0.4)
+        wait_for_shm(NAME)
         r = subprocess.run([BIN, '--shm', NAME, '--lo', repr(LO), '--duration', repr(duration), '--stats', '0.5',
                             '--quiet'] + sniff_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=duration + 20)
     finally:
@@ -110,9 +127,13 @@ def main():
         last = st[-1] if st else {}
         ok1, n, w1 = score(truth, pk, 0, run=1)
         ok2, _, w2 = score(truth, pk, 4000 * SLICE, run=2)
-        print('new-run:  runs %s, decoded run 1: %d + run 2: %d of %d (timing <= %.2f / %.2f us)' %
-              (last.get('runs'), ok1, ok2, n, w1, w2))
-        if rc or last.get('runs') != 2 or last.get('samples') != fk['slices'] * SLICE or ok1 + ok2 < 0.9 * n or ok2 == 0:
+        # Nothing is overwritten here: the old run's unread tail is drained before the switch, so
+        # every published sample is delivered (was: ~20 slices of run 1 dropped, uncounted).
+        print('new-run:  runs %s, decoded run 1: %d + run 2: %d of %d (timing <= %.2f / %.2f us), samples %s of %d '
+              'published, skipped_slots %s' % (last.get('runs'), ok1, ok2, n, w1, w2, last.get('samples'),
+                                               fk['slices'] * SLICE, last.get('skipped_slots')))
+        if rc or last.get('runs') != 2 or last.get('samples') != fk['slices'] * SLICE or \
+                last.get('skipped_slots') != 0 or ok1 + ok2 < 0.9 * n or ok2 == 0:
             failures.append('new-run')
 
         # behind: 4x real time (640 Msps) into a 1024-slot ring (13 ms), one channelizer thread

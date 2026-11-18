@@ -50,6 +50,7 @@ output
   --web-host H, --web-port P
 
 sniffer (passed to build/w1700k-ble)
+  --classic          also observe Classic BR/EDR traffic on 79 channels (SQLite/dashboard)
   --threads N, --stats S (default 5), --channels all|adv|LIST, --threshold-db DB
 
   --no-build         do not run make
@@ -85,6 +86,7 @@ while [ $# -gt 0 ]; do
         --web-port) WEB=1; WEB_PORT=${2:?--web-port P}; shift ;;
         --stats) STATS_SEC=${2:?--stats S}; shift ;;
         --threads|--channels|--threshold-db) SNIFF+=("$1" "${2:?$1 needs a value}"); shift ;;
+        --classic) SNIFF+=(--classic) ;;
         --no-build) BUILD=0 ;;
         --dry-run) DRY=1 ;;
         --) shift; SNIFF+=("$@"); break ;;

@@ -344,7 +344,8 @@ class SinkTest(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr.decode())
         cols = {r[1] for r in self.q("PRAGMA table_info(ble_packets)", db=db)}
         for c in ("phase_rad", "aoa_deg", "kind", "aa", "rf_channel", "crc_init", "cfo_khz",
-                  "noise_dbfs", "t_stream", "llid", "ctrl_opcode", "pdu", "extra"):
+                  "noise_dbfs", "t_stream", "llid", "ctrl_opcode", "pdu", "extra", "rx_addr",
+                  "direction"):
             self.assertIn(c, cols)
         self.assertEqual(self.q("SELECT sdr, addr, kind FROM ble_packets WHERE id=1", db=db),
                          [("pluto", "X", None)])
@@ -430,6 +431,170 @@ class SinkTest(unittest.TestCase):
         rate = n / dt
         sys.stderr.write("\n  sink throughput: %.0f packets/s (%d in %.2f s)\n" % (rate, n, dt))
         self.assertGreater(rate, 3000)
+
+
+def reply(ts, ch, rx_addr, **kw):
+    """A REPLY_UNDECODED record (FOLLOW.md 1): a reply slot with energy the sniffer did not decode."""
+    o = {"ts": ts, "t_stream": ts - 1000, "run": 1, "sdr": "w1700k", "kind": "adv",
+         "rf_channel": {37: 0, 38: 12, 39: 39}[ch], "channel": ch, "freq_mhz": 2402, "phy": "1M",
+         "aa": "8e89bed6", "crc_ok": False, "pdu_type": "REPLY_UNDECODED", "rx_addr": rx_addr,
+         "reply_to": "ADV_IND", "reply_gap_us": 151.2, "reply_us": 352, "reply_onset_us": 140.1,
+         "reply_fits": "CONNECT_IND", "rssi_dbfs": -48.0, "noise_dbfs": -75.0, "cfo_khz": -31.0,
+         "sync_bit": 10}
+    o.update(kw)
+    return o
+
+
+class FollowColumnsTest(unittest.TestCase):
+    """FOLLOW.md 2: the rx_addr / direction columns and the REPLY_UNDECODED storage rule."""
+    PERIPH, CENTRAL = "B0:B9:50:E8:43:7B", "6D:38:7D:C8:35:47"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="w1700k-ble-follow-cols-")
+        cls.now = time.time()
+        t = cls.now - 10
+        cls.lines = [
+            adv(t, 37, cls.PERIPH, rssi_dbfs=-50.0),
+            # SCAN_REQ with the new key, lower case on the wire
+            adv(t + 0.001, 37, cls.CENTRAL, pdu_type="SCAN_REQ", pdu_len=12,
+                rx_addr=cls.PERIPH.lower(), rx_add=0),
+            # an undecoded reply with a damaged frame: `addr` is a guess, not a device
+            reply(t + 0.002, 37, cls.PERIPH, guess="CONNECT_IND", addr="6D:38:7D:C8:35:46",
+                  tx_add=1, rx_add=0, pdu_len=34, pdu="0522" + "00" * 34, air="aabbcc", aa_errors=0),
+            # energy only, on another channel and second
+            reply(t + 1.5, 38, cls.PERIPH, reply_us=1174.4, reply_fits=None),
+            data(t + 2.0, 5, CONN_AA, CONN_CRC, dir=1),
+            data(t + 2.1, 5, CONN_AA, CONN_CRC, dir=0, sync_bit=37),
+            data(t + 2.2, 6, CONN_AA, CONN_CRC, dir=2),          # not a direction: NULL
+            data(t + 2.3, 7, CONN_AA, CONN_CRC, dir="x"),        # wrong type: NULL
+            data(t + 2.4, 8, CONN_AA, CONN_CRC),                 # no key: NULL
+        ]
+        cls.text = "\n".join(json.dumps(o) for o in cls.lines) + "\n"
+        cls.db = os.path.join(cls.tmp, "f.db")
+        cls.proc = run_sink(cls.db, cls.text)
+        cls.db_all = os.path.join(cls.tmp, "f-all.db")
+        cls.proc_all = run_sink(cls.db_all, cls.text, "--all")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def q(self, sql, *args, db=None):
+        conn = sqlite3.connect(db or self.db)
+        try:
+            return conn.execute(sql, args).fetchall()
+        finally:
+            conn.close()
+
+    def test_exit(self):
+        self.assertEqual(self.proc.returncode, 0, self.proc.stderr.decode())
+        self.assertIn("2 undecoded replies", self.proc.stderr.decode())
+        self.assertEqual(self.proc_all.returncode, 0, self.proc_all.stderr.decode())
+
+    def test_rx_addr_column(self):
+        self.assertEqual(self.q("SELECT rx_addr, rx_add FROM ble_packets WHERE pdu_type='SCAN_REQ'"),
+                         [(self.PERIPH, 0)])
+        # not also filed in `extra`
+        self.assertEqual(self.q("SELECT extra FROM ble_packets WHERE pdu_type='SCAN_REQ'"), [(None,)])
+        self.assertEqual(self.q("SELECT rx_addr FROM ble_packets WHERE pdu_type='ADV_IND'"), [(None,)])
+
+    def test_direction_column(self):
+        rows = self.q("SELECT channel, direction, typeof(direction) FROM ble_packets WHERE kind='data' "
+                      "ORDER BY ts")
+        self.assertEqual(rows, [(5, 1, "integer"), (5, 0, "integer"), (6, None, "null"),
+                                (7, None, "null"), (8, None, "null")])
+        # the keys the sink has no column for still go to extra; dir does not
+        extra = self.q("SELECT extra FROM ble_packets WHERE kind='data' AND direction=0")[0][0]
+        self.assertEqual(json.loads(extra), {"sync_bit": 37})
+
+    def test_bad_direction_counted(self):
+        self.assertIn(" 0 malformed", self.proc.stderr.decode())
+        sys.path.insert(0, os.path.join(ROOT, "sink"))
+        try:
+            import w1700k_ble_sink as sink
+        finally:
+            sys.path.pop(0)
+        self.assertEqual(sink.parse_packet(data(1.0, 6, CONN_AA, CONN_CRC, dir=2)).bad_fields, 1)
+        self.assertEqual(sink.parse_packet(data(1.0, 6, CONN_AA, CONN_CRC, dir=1)).bad_fields, 0)
+
+    def test_replies_stored_without_all(self):
+        rows = self.q("SELECT channel, crc_ok, rx_addr, addr, pdu_len, hex(pdu), extra FROM ble_packets "
+                      "WHERE pdu_type='REPLY_UNDECODED' ORDER BY ts")
+        self.assertEqual(len(rows), 2)
+        ch, ok, rx, addr, ln, pdu, extra = rows[0]
+        self.assertEqual((ch, ok, rx, addr, ln), (37, 0, self.PERIPH, "6D:38:7D:C8:35:46", 34))
+        self.assertEqual(pdu, "0522" + "00" * 34)
+        e = json.loads(extra)
+        for k, v in (("reply_to", "ADV_IND"), ("reply_gap_us", 151.2), ("reply_us", 352),
+                     ("reply_fits", "CONNECT_IND"), ("guess", "CONNECT_IND"), ("reply_onset_us", 140.1)):
+            self.assertEqual(e[k], v)
+        self.assertNotIn("rx_addr", e)
+        self.assertEqual(rows[1][:4], (38, 0, self.PERIPH, None))
+        self.assertEqual(json.loads(rows[1][6])["reply_us"], 1174.4)
+        # still only these two CRC-failed rows: an ordinary bad-CRC line would be dropped
+        self.assertEqual(self.q("SELECT COUNT(*) FROM ble_packets WHERE crc_ok=0")[0][0], 2)
+
+    def test_replies_stored_once_with_all(self):
+        self.assertEqual(self.q("SELECT COUNT(*) FROM ble_packets WHERE pdu_type='REPLY_UNDECODED'",
+                                db=self.db_all)[0][0], 2)
+
+    def test_replies_make_no_devices(self):
+        devs = {r[0] for r in self.q("SELECT addr FROM ble_devices")}
+        self.assertEqual(devs, {self.PERIPH, self.CENTRAL})
+        self.assertNotIn("6D:38:7D:C8:35:46", devs)
+        types = self.q("SELECT pdu_types, packets FROM ble_devices WHERE addr=?", self.PERIPH)
+        self.assertEqual(types, [("ADV_IND", 1)])
+        self.assertEqual(self.q("SELECT COUNT(*) FROM ble_connections WHERE source='connect_ind'")[0][0], 0)
+
+    def test_replies_not_in_activity(self):
+        for db in (self.db, self.db_all):
+            act = {r[0]: r[1:] for r in self.q(
+                "SELECT channel, SUM(adv), SUM(data), SUM(bad) FROM ble_activity GROUP BY channel", db=db)}
+            self.assertEqual(act[37], (2, 0, 0))          # the advert and the SCAN_REQ, no reply
+            self.assertNotIn(38, act, "the energy-only reply alone makes no activity row")
+
+    def test_stats_line_time(self):
+        """A STATS line handled with an explicit time (a replaying tool) is stored at that time."""
+        sys.path.insert(0, os.path.join(ROOT, "sink"))
+        try:
+            import w1700k_ble_sink as sink
+        finally:
+            sys.path.pop(0)
+        args = sink.build_parser().parse_args(["--db", os.path.join(self.tmp, "stats.db")])
+        s = sink.Sink(args)
+        s.last_prune = float("inf")       # a replay: the day-old-stats prune would drop the row
+        try:
+            s.handle_line(b'STATS {"t": 5.0, "slices_lost": 0}', now=1234.5)
+            s.handle_line(b'STATS {"t": 10.0, "slices_lost": 1}')
+            s.flush()
+            rows = s.conn.execute("SELECT ts, json FROM ble_stats ORDER BY ts").fetchall()
+        finally:
+            s.conn.close()
+        self.assertEqual(rows[0], (1234.5, '{"t":5.0,"slices_lost":0}'))
+        self.assertGreater(rows[1][0], time.time() - 60)
+
+    def test_migration_keeps_rows(self):
+        """A db written before these columns (like the 27 GB capture) gains them in place."""
+        db = os.path.join(self.tmp, "before.db")
+        conn = sqlite3.connect(db)
+        sys.path.insert(0, os.path.join(ROOT, "sink"))
+        try:
+            import w1700k_ble_sink as sink
+        finally:
+            sys.path.pop(0)
+        conn.executescript(sink.SCHEMA)
+        for col, decl in sink.EXTRA_COLUMNS:
+            if col not in ("rx_addr", "direction", "phase_rad", "aoa_deg"):
+                conn.execute("ALTER TABLE ble_packets ADD COLUMN %s %s" % (col, decl))
+        conn.execute("INSERT INTO ble_packets (ts, sdr, channel, crc_ok, pdu_type, addr) "
+                     "VALUES (1.0, 'w1700k', 37, 1, 'SCAN_REQ', 'X')")
+        conn.commit()
+        conn.close()
+        self.assertEqual(run_sink(db, self.text).returncode, 0)
+        self.assertEqual(self.q("SELECT rx_addr, direction FROM ble_packets WHERE id=1", db=db),
+                         [(None, None)])
+        self.assertEqual(self.q("SELECT COUNT(*) FROM ble_packets WHERE rx_addr=?", self.PERIPH, db=db)[0][0], 3)
 
 
 class WebTest(unittest.TestCase):

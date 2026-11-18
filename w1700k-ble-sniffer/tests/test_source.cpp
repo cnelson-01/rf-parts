@@ -4,6 +4,7 @@
 #include "w1700k_stream.h"
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -71,7 +72,41 @@ int main()
 			assert(r.n == new_count * slice && out[0] == 200);
 		}
 	}
+	// Wall-clock anchor. Without a fresh received / last_any_ns pair a run is anchored at
+	// run_started_ns, which after the stream service restarted a run could still describe the
+	// previous run: a sniffer surviving the restart stamped packets ~an hour early.
+	{
+		const double slice_s = double(slice) / 160e6;
+		auto off_now = [](double t) { return std::fabs(t - realtime_now()); };
+		h->heartbeat_ns = uint64_t(monotonic_now() * 1e9);
+		h->run_started_ns = uint64_t(std::max(1.0, monotonic_now() - 3600) * 1e9);
+		// Attaching with no usable pair (received 0): the newest slot is about now.
+		std::memset(w1700k_stream_tags(h), 0, ring * 8);
+		h->received = h->last_any_ns = 0;
+		publish(1, 0, 3);
+		std::string err;
+		auto src = open_shm_source(name, 0, err);
+		auto r = src->read(out.data(), 8 * slice);
+		assert(r.new_run && off_now(r.t_wall0 + 3 * slice_s) < 1);
+		// A fresh pair is used as is, even 0.5 s behind the wall clock.
+		std::memset(w1700k_stream_tags(h), 0, ring * 8);
+		publish(1, 0, 6);
+		h->received = 6;
+		h->last_any_ns = uint64_t((monotonic_now() - 0.5) * 1e9);
+		src = open_shm_source(name, 0, err);
+		r = src->read(out.data(), 8 * slice);
+		assert(r.new_run && off_now(r.t_wall0 + 6 * slice_s + 0.5) < 0.01);
+		assert(src->read(out.data(), 8 * slice).n == 6 * slice);
+		// The service starts run 2 before republishing the pair; run_started_ns is an hour stale.
+		h->received = 0;
+		publish(2, 0, 3);
+		r = src->read(out.data(), 8 * slice);
+		assert(r.new_run && off_now(r.t_wall0 + 3 * slice_s) < 1);
+		r = src->read(out.data(), 8 * slice);
+		assert(r.n == 3 * slice && out[0] == 200);
+		assert(std::fabs(src->stats().age_s) < 1); // now - time of the newest sample delivered
+	}
 	munmap(h, bytes);
 	shm_unlink(name.c_str());
-	std::puts("source: cached slice, final old-run tags, and known abandoned slots PASS");
+	std::puts("source: cached slice, final old-run tags, known abandoned slots, and wall-clock anchor PASS");
 }
